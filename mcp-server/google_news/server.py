@@ -60,8 +60,6 @@ def search_news(query: str) -> List[Dict[str, Any]]:
         client.get_news(query)
         results = client.results()
         logger.info(f"search_news: fetched {len(results)} items")
-        # for item in results:
-        #     item["context"] = convert_news_to_markdown(item["link"])
         return results
     except Exception as e:
         logger.error(f"search_news error: {e}", exc_info=True)
