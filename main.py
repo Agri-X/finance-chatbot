@@ -4,7 +4,7 @@ import asyncio
 from pathlib import Path
 from typing import Literal
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langgraph.prebuilt import ToolNode, tools_condition
+from langgraph.prebuilt import ToolNode
 from langchain.schema.runnable.config import RunnableConfig
 from langchain_core.messages import HumanMessage
 from langchain_mcp_adapters.client import MultiServerMCPClient
@@ -18,20 +18,13 @@ import chainlit as cl
 
 memory = MemorySaver()
 
+
 # Initialize MCP client and tools (your existing setup)
 client = MultiServerMCPClient(
     {
         "finance": {
             "command": "python",
             "args": [str(Path("mcp-server/investor_agent/server.py").resolve())],
-            "env": {
-                "PYTHONPATH": str(Path(__file__).resolve().parent),
-            },
-            "transport": "stdio",
-        },
-        "google_news": {
-            "command": "python",
-            "args": [str(Path("mcp-server/google_news/server.py").resolve())],
             "env": {
                 "PYTHONPATH": str(Path(__file__).resolve().parent),
             },
@@ -111,7 +104,6 @@ Your operational workflow involves:
 - For news-only requests, ensure the news is relevant to financial markets, companies, or economic events.
 - Do not output links; fetch the content first before giving it back to the user.
 - If search results are not relevant, refine the query and try again.
-- If you dont know what the ticker is then find it using the] `get_all_news` tool with a query like "ticker: [company name or query]".
 
 **Error Handling**:
 - If data is unavailable or there's an error in fetching data, inform the user and suggest alternative data sources or timeframes.
@@ -121,10 +113,52 @@ Current date: {datetime.now().date().strftime("%A, %Y-%m-%d")}
 """
 
 
+ticker_finder_prompt = """
+
+**ticker finder:** If you dont know what the ticker is then do this step by step to find the ticker symbol for a company.
+
+1.  **Initial Search:**
+    * You must use the `get_all_news` tool to find the ticker.
+    * Construct a highly specific query using the full company name (if known) and the phrase "stock ticker" or "ticker symbol".
+    * **Crucially, you must optimize the search using the tool's arguments for precision.**
+
+2.  **Optimized Tool Usage:**
+    * Set `search_in` to `'title,description'`. This focuses the search on the most relevant parts get news on sea limitedof the news articles.
+
+3.  **Analysis and Extraction:**
+    * From the results, identify the stock ticker. It is a capitalized string of 1-5 letters.
+    * Look for a clear association between the company name and the ticker, often presented like `Company Name (EXCHANGE:TICKER)`.
+    * Extract only the ticker symbol (e.g., from "NASDAQ:KO", you should extract `KO`).
+
+4.  **Verification and Handling Ambiguity:**
+    * If the search yields results for multiple companies or tickers, refine your query with more specific company details.
+    * If you find multiple tickers for the same company (e.g., different share classes like `GOOG` and `GOOGL`), identify the primary or most commonly traded ticker. You can do this by running a new search for `"company name" primary stock` to find more context.
+"""
+
+news_agent_prompt = """
+**news agent:** You can find relevant financial news articles about companies, markets, and economic topics. You can use advanced search operators like `+`, `-`, `AND`, `OR`, and `"` in your queries for more precision.
+
+You have three tools for this at your disposal:
+
+1.  `get_top_headlines`: Use this to fetch live, top, and breaking financial news. This is best for general market updates or top business news from a specific country.
+2.  `get_all_news`: Use this for in-depth historical searches on specific financial topics or companies. It supports advanced search queries and allows you to specify which fields to search in (title, description, content).
+3.  `get_sources`: Use this to discover which financial news sources are available.
+
+When a user asks for information, use these tools to find the most relevant financial news. For example:
+- "What's the latest news on Apple?" -> `get_top_headlines(query='Apple')`
+- "Find articles about Tesla but not Elon Musk." -> `get_all_news(query='Tesla -Musk')`
+- "Search for 'initial public offering' in article titles." -> `get_all_news(query='"initial public offering"', search_in='title')`
+
+Always return the direct, unmodified output from the tools. Your internal mechanisms will handle focusing the queries on financial data.
+"""
+
+
 # Node Functions
 def call_main_model(state: MessagesState):
     """Main model that decides which tools to use"""
-    messages = [system_prompt] + state["messages"]
+    messages = [system_prompt + ticker_finder_prompt + news_agent_prompt] + state[
+        "messages"
+    ]
     response = main_model.invoke(messages)
     return {"messages": [response]}
 
@@ -151,14 +185,20 @@ def format_final_response(state: MessagesState):
     last_ai_message = messages[-1]
 
     format_prompt = f"""
-    Rewrite this response to be more concise, clear, and user-friendly:
-    
-    Original: {last_ai_message.content}
-    
-    Make it:
-    - Clear and well-structured
-    - Easy to read
-    - Comprehensive but concise
+Rewrite this response to be more concise, clear, and user-friendly:
+
+Original: {last_ai_message.content}
+
+Make it:
+- Clear and well-structured
+- Easy to read
+- Comprehensive but concise
+
+Rules: 
+- If the data is a table then show the table in markdown format.
+- If the data is a list, show it as a bullet point list.
+- If the data is a paragraph, keep it concise and to the point.
+- If the data is a code block, keep it as is.
     """
 
     formatted_response = formatter_model.invoke(
