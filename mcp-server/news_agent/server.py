@@ -1,8 +1,8 @@
 import logging
 import os
-import sys
 from newsapi import NewsApiClient
 from typing import Optional, Dict, Any
+from newspaper import Article
 
 from mcp.server.fastmcp import FastMCP
 
@@ -59,7 +59,7 @@ def get_all_news(
     sort_by: str = "publishedAt",
     page_size: int = 100,
     page: int = 1,
-) -> Dict[str, Any]:
+):
     """
     Search through millions of articles. This tool is automatically tailored for financial news.
 
@@ -101,12 +101,12 @@ def get_all_news(
             page=page,
         )
         logger.info(f"get_all_news called. Status: {response.get('status')}")
-        return response
+        return to_markdown(response.get("articles", []))
     except Exception as e:
         logger.error(
             f"An unexpected error occurred in get_all_news: {e}", exc_info=True
         )
-        return {"status": "error", "message": f"An unexpected error occurred: {e}"}
+        return f"An unexpected error occurred: {e}"
 
 
 @mcp.tool()
@@ -141,7 +141,7 @@ def get_top_headlines(
 
     final_query = query
     if query:
-        final_query = f"({query}) AND (finance OR financial OR stock OR market OR business OR earnings)"
+        final_query = f"({query})"
         logger.info(f"Original query: '{query}', Enhanced query: '{final_query}'")
 
     try:
@@ -183,6 +183,62 @@ def get_sources(
     except Exception as e:
         logger.error(f"An unexpected error occurred in get_sources: {e}", exc_info=True)
         return {"status": "error", "message": f"An unexpected error occurred: {e}"}
+
+
+@mcp.tool()
+def fetch_article_content(url: str) -> str:
+    """
+    Fetches the full content of an article from its URL.
+
+    Args:
+        url (str): The URL of the article to fetch.
+
+    Returns:
+        str: The full content of the article.
+    """
+    try:
+        article = Article(url)
+        article.download()
+        article.parse()
+        return article.text
+    except Exception as e:
+        logger.error(f"Error fetching article content: {e}", exc_info=True)
+        return f"Error fetching article content: {e}"
+
+
+def to_markdown(articles):
+    """
+    Converts a list of article dictionaries into a Markdown formatted string.
+
+    Args:
+      articles: A list of dictionaries, where each dictionary represents an article.
+
+    Returns:
+      A string in Markdown format.
+    """
+    markdown_output = ""
+    for article in articles:
+        # Extract the relevant fields from the article dictionary
+        title = article.get("title", "No Title")
+        published_at = article.get("publishedAt", "Unknown Publication Date")
+        description = article.get("description", "No Description Available.")
+        content = article.get("content", "No Content Available.")
+
+        logger.info(content)
+
+        # Format the extracted information into Markdown
+        markdown_output += f"### {title}\n\n"
+
+        if description:
+            markdown_output += f"{description}\n\n"
+
+        if content:
+            markdown_output += f"**Content:** {content}\n\n"
+
+        markdown_output += f"**Published on:** {published_at.split('T')[0]}\n"
+        markdown_output += "\n---\n\n"
+
+    return markdown_output
 
 
 # --- Main Execution Block ---
