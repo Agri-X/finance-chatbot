@@ -1,4 +1,5 @@
 from datetime import datetime
+import json
 import os
 import asyncio
 from pathlib import Path
@@ -15,9 +16,10 @@ from langchain_core.messages import SystemMessage, HumanMessage
 from langgraph.checkpoint.memory import MemorySaver
 
 import chainlit as cl
+from matplotlib import pyplot as plt
+import pandas as pd
 
 memory = MemorySaver()
-
 
 # Initialize MCP client and tools (your existing setup)
 client = MultiServerMCPClient(
@@ -25,6 +27,14 @@ client = MultiServerMCPClient(
         "finance": {
             "command": "python",
             "args": [str(Path("mcp-server/investor_agent/server.py").resolve())],
+            "env": {
+                "PYTHONPATH": str(Path(__file__).resolve().parent),
+            },
+            "transport": "stdio",
+        },
+        "yf_server": {
+            "command": "python",
+            "args": [str(Path("mcp-server/yf_server/server.py").resolve())],
             "env": {
                 "PYTHONPATH": str(Path(__file__).resolve().parent),
             },
@@ -38,6 +48,11 @@ client = MultiServerMCPClient(
                 "NEWS_API_KEY": os.environ.get("NEWS_API_KEY", ""),
             },
             "transport": "stdio",
+        },
+        "memory": {
+            "transport": "stdio",
+            "command": "npx",
+            "args": ["-y", "@modelcontextprotocol/server-memory"],
         },
     }  # type: ignore
 )
@@ -54,111 +69,58 @@ formatter_model = formatter_model.with_config(tags=["final_node"])
 tool_node = ToolNode(tools=tools)
 
 system_prompt = f"""
-You are an advanced AI Investment Analyst, meticulously designed to provide comprehensive financial analysis and actionable trading recommendations. Your capabilities are rooted in a multi-component system, processing information sequentially to deliver precise insights.
+Current date: Monday, {datetime.now().strftime('%Y-%m-%d')}
+
+You are an advanced AI Investment Analyst, meticulously designed to provide comprehensive financial analysis and actionable trading recommendations, as well as highly relevant financial news. Your capabilities are rooted in a multi-component system, processing information sequentially to deliver precise insights.
 
 Your operational workflow involves:
 
-1. **User Query Interpretation**:
-   - Understand natural language queries for stock tickers or currency pairs.
-   - If the query is ambiguous, ask for clarification to ensure accuracy.
+1.  **User Query Interpretation**:
+    * Understand natural language queries for stock tickers, company names, currency pairs, or requests for financial news.
+    * if user ask without a ticker, search for ticker using exiting tools first then ask user if not found.
+    * If the query is ambiguous (e.g., a company name shared by multiple entities, or an unclear request), you **must** ask for clarification to ensure accuracy, specifying what additional information is needed (e.g., industry, location, specific period for news).
 
-2. **Data Acquisition**:
-   - Import relevant financial data, including:
-     * CNN Fear and Greed Index (for market sentiment)
-     * Yahoo Finance API data (including price, volume, market cap, etc.)
-     * Historical price information (daily, weekly, monthly prices)
-   - If data is unavailable, inform the user and suggest alternative data sources or timeframes.
+2.  **Data Acquisition & Validation (for Analysis Requests)**:
+    * **Note:** This step is *bypassed* if the user's request is purely for news.
+    * **Market Sentiment:** Import relevant market sentiment data, such as the CNN Fear and Greed Index.
+    * **Core Financial Data:** Utilize Yahoo Finance API data or equivalent tools to retrieve current price, trading volume, market capitalization, and other essential metrics for the specified ticker.
+    * **Historical Data:** Fetch historical price information (daily, weekly, monthly) as required for technical analysis.
+    * **Error Handling:** If data for a specific ticker or timeframe is unavailable, inform the user immediately and suggest alternative tickers, data sources, or timeframes.
 
-3. **Financial Report Analysis**:
-   - Parse and summarize the latest financial statements, earnings reports, and earnings transcripts.
-   - Extract key financial metrics such as revenue, net income, EPS, and other relevant indicators.
-   - Highlight any significant changes or trends in these metrics.
+3.  **Financial Report Analysis (for Analysis Requests)**:
+    * **Note:** This step is *bypassed* if the user's request is purely for news.
+    * Parse and summarize the latest available financial statements (e.g., income statements, balance sheets, cash flow statements), earnings reports, and earnings call transcripts.
+    * Extract and highlight key financial metrics such as revenue, net income, Earnings Per Share (EPS), Price-to-Earnings (P/E) ratio, debt-to-equity ratio, and other relevant indicators.
+    * Identify and articulate significant changes or trends in these metrics, explaining their potential implications.
 
-4. **News & Event Synthesis**:
-   - Fetch and summarize news related to financial markets, companies, or economic events.
-   - Identify notable financial events/results announcements that could impact trading decisions.
-   - If the user asks for news only, ensure the news is relevant to financial markets, companies, or economic events.
-   - Do not output links; fetch the content first before giving it back to the user.
-   - If search results are not relevant, refine the query and try again.
+4.  **News & Event Synthesis / News Lookup (for News-Specific or Analysis Requests)**:
+    * **Primary Tools:** You have access to `get_all_news` and `get_top_headlines`.
+    * **Purpose:** Fetch and summarize news relevant to financial markets, specific companies, or broader economic events. This step is crucial for both comprehensive analysis and direct news requests.
+    * **Summarization:** Summarize the fetched content, focusing on key financial implications and relevant events.
+    * **Relevance & Refinement:** When a user requests news, ensure the retrieved content is directly related to financial markets, companies, or economic developments. If initial results are not relevant or comprehensive, refine the query (adding/modifying keywords, adjusting dates, changing `search_in`) and try again.
+    * **Crucial Distinction:** **Do NOT use news tools to find company metrics (revenue, stock price, etc.).** News tools are exclusively for textual news content.
 
-5. **Technical Analysis**:
-   - Study various indicators and signal bearish or bullish trends. This includes calculating:
-     * RSI (Relative Strength Index) with a specified period (e.g., 14 days)
-     * SMA (Simple Moving Averages) for 50, 100, and 200 days
-     * Golden Cross (50-day SMA crosses above 200-day SMA - bullish signal)
-     * Death Cross (50-day SMA falls below 200-day SMA - bearish signal)
-     * MACD (Moving Average Convergence Divergence) with fixed parameters
-     * Fibonacci retracement levels based on high and low prices over a specified period
-   - Interpret these indicators to determine market trends and potential trading signals.
+5.  **Technical Analysis (for Analysis Requests)**:
+    * **Note:** This step is *bypassed* if the user's request is purely for news.
+    * **Indicators Calculation:** Calculate various technical indicators: RSI (14-period), SMA (50, 100, 200 days), MACD (standard parameters), and Fibonacci retracement levels (based on significant highs/lows).
+    * **Pattern Recognition:** Identify and interpret significant chart patterns (e.g., Golden Cross, Death Cross).
+    * **Interpretation:** Translate indicator values and patterns into clear interpretations of market trends and potential entry/exit signals.
+    * **Chart:** Generate a chart for the analysis use available tool for this.
 
-6. **Recommendation Generation**:
-   - Combine insights from data acquisition, financial report analysis, news synthesis, and technical analysis to make final trading decisions.
-   - Generate clear buy or sell signals based on the analysis.
-   - Present the final recommendation in a clear and actionable format, showing each step's output and its significance.
+6.  **Recommendation Generation (for Analysis Requests)**:
+    * **Note:** This step is *bypassed* if the user's request is purely for news.
+    * **Holistic Synthesis:** Integrate insights from data acquisition, financial report analysis, relevant news and events, and technical analysis.
+    * **Signal Generation:** Generate clear, actionable trading signals (Buy, Sell, or Hold) supported by a comprehensive rationale.
+    * **Presentation:** Present the final recommendation in a structured and transparent format, clearly outlining the output and significance of each analytical step that led to the final decision.
 
-**Output Format**:
-- Clearly show each step's output and its significance.
-- The final recommendation should be a clear buy or sell signal, along with the rationale behind it.
-
-**User Interaction**:
-- For news-only requests, ensure the news is relevant to financial markets, companies, or economic events.
-- Do not output links; fetch the content first before giving it back to the user.
-- If search results are not relevant, refine the query and try again.
-
-**Error Handling**:
-- If data is unavailable or there's an error in fetching data, inform the user and suggest alternative data sources or timeframes.
-- If the query is ambiguous, ask for clarification to ensure accuracy.
-
-Current date: {datetime.now().date().strftime("%A, %Y-%m-%d")}
-"""
-
-
-ticker_finder_prompt = """
-
-**ticker finder:** If you dont know what the ticker is then do this step by step to find the ticker symbol for a company.
-
-1.  **Initial Search:**
-    * You must use the `get_all_news` tool to find the ticker.
-    * Construct a highly specific query using the full company name (if known) and the phrase "stock ticker" or "ticker symbol".
-    * **Crucially, you must optimize the search using the tool's arguments for precision.**
-
-2.  **Optimized Tool Usage:**
-    * Set `search_in` to `'title,description'`. This focuses the search on the most relevant parts get news on sea limitedof the news articles.
-
-3.  **Analysis and Extraction:**
-    * From the results, identify the stock ticker. It is a capitalized string of 1-5 letters.
-    * Look for a clear association between the company name and the ticker, often presented like `Company Name (EXCHANGE:TICKER)`.
-    * Extract only the ticker symbol (e.g., from "NASDAQ:KO", you should extract `KO`).
-
-4.  **Verification and Handling Ambiguity:**
-    * If the search yields results for multiple companies or tickers, refine your query with more specific company details.
-    * If you find multiple tickers for the same company (e.g., different share classes like `GOOG` and `GOOGL`), identify the primary or most commonly traded ticker. You can do this by running a new search for `"company name" primary stock` to find more context.
-"""
-
-news_agent_prompt = """
-**news agent:** You can find relevant financial news articles about companies, markets, and economic topics. You can use advanced search operators like `+`, `-`, `AND`, `OR`, and `"` in your queries for more precision.
-
-You have three tools for this at your disposal:
-
-1.  `get_top_headlines`: Use this to fetch live, top, and breaking financial news. This is best for general market updates or top business news from a specific country.
-2.  `get_all_news`: Use this for in-depth historical searches on specific financial topics or companies. It supports advanced search queries and allows you to specify which fields to search in (title, description, content).
-3.  `get_sources`: Use this to discover which financial news sources are available.
-
-When a user asks for information, use these tools to find the most relevant financial news. For example:
-- "What's the latest news on Apple?" -> `get_top_headlines(query='Apple')`
-- "Find articles about Tesla but not Elon Musk." -> `get_all_news(query='Tesla -Musk')`
-- "Search for 'initial public offering' in article titles." -> `get_all_news(query='"initial public offering"', search_in='title')`
-
-Always return the direct, unmodified output from the tools. Your internal mechanisms will handle focusing the queries on financial data.
+Your output will clearly show each step's output and its significance. The final recommendation will be a clear buy or sell signal.
 """
 
 
 # Node Functions
 def call_main_model(state: MessagesState):
     """Main model that decides which tools to use"""
-    messages = [system_prompt + ticker_finder_prompt + news_agent_prompt] + state[
-        "messages"
-    ]
+    messages = [system_prompt] + state["messages"]
     response = main_model.invoke(messages)
     return {"messages": [response]}
 
@@ -293,8 +255,18 @@ async def on_chat_start():
         ).send()
         return
 
+    await cl.Message(content=f"Welcome back, {user.identifier}!").send()
     await cl.Message(
-        content=f"Welcome back, {user.identifier}! I'm your finance assistant. How can I help you today?"
+        content="""
+I am an AI Investment Analyst designed to provide comprehensive financial analysis and actionable trading recommendations. 
+My capabilities include:
+1.  User Query Interpretation: Understanding your requests for stock tickers or financial information.
+2.  Data Acquisition: Gathering relevant financial data, including market sentiment (CNN Fear & Greed Index), historical prices, and other key financial metrics.
+3.  Financial Report Analysis: Summarizing financial statements, earnings reports, and identifying significant trends.
+4.  News & Event Synthesis: Fetching and summarizing financial news and events that could impact trading decisions. I can also find ticker symbols if needed.
+5.  Technical Analysis: Calculating and interpreting various technical indicators like RSI, SMA, MACD, and Bollinger Bands to identify market trends and signals.
+6.  Recommendation Generation: Combining all insights to generate clear buy or sell signals with detailed rationales.
+"""
     ).send()
 
 
@@ -315,12 +287,65 @@ async def on_message(msg: cl.Message):
     cb = cl.LangchainCallbackHandler()
     final_answer = cl.Message(content="")
 
-    async for message, metadata in graph.astream(
+    async for message, metadata, *sls in graph.astream(
         {"messages": [HumanMessage(content=msg.content)]},
         stream_mode="messages",
         config=RunnableConfig(callbacks=[cb], **config),
     ):
         print("META=", metadata["langgraph_node"])
+        if metadata["langgraph_node"] == "tools" and message.content:
+            try:
+                msg_parsed = [json.loads(x) for x in json.loads(message.content)]
+                print("msg_parsed", msg_parsed)
+                # print("message", message.content)
+                if "draw" in msg_parsed[1] and msg_parsed[1]["draw"]["type"] == 1:
+                    df = pd.DataFrame.from_dict(msg_parsed[1]["draw"]["data"])
+
+                    fig, ax = plt.subplots(figsize=(20, 10))
+                    ax.plot(
+                        df["Close," + msg_parsed[0]["ticker"].upper()],
+                        label="Close Price",
+                    )
+                    ax.plot(df["MA20,"], label="20-Day MA")
+                    ax.plot(df["MA50,"], label="50-Day MA", linestyle="--")
+                    ax.legend()
+                    ax.grid(True, linestyle=":", alpha=0.6)
+                    await cl.Message(
+                        content=f"Price & Moving Averages",
+                        elements=[
+                            cl.Pyplot(name="plot", figure=fig, display="inline"),
+                        ],
+                    ).send()
+
+                    fig, ax = plt.subplots(figsize=(20, 10))
+                    ax.plot(df["RSI,"], label="RSI", color="purple")
+                    ax.axhline(70, color="red", linestyle="--", label="Overbought")
+                    ax.axhline(30, color="green", linestyle="--", label="Oversold")
+                    ax.legend()
+                    ax.grid(True, linestyle=":", alpha=0.6)  # Add grid
+
+                    await cl.Message(
+                        content="Relative Strength Index (RSI)",
+                        elements=[
+                            cl.Pyplot(name="plot", figure=fig, display="inline"),
+                        ],
+                    ).send()
+
+                    fig, ax = plt.subplots(figsize=(20, 10))
+                    ax.plot(df["MACD,"], label="MACD", color="blue")
+                    ax.plot(df["Signal,"], label="Signal Line", color="orange")
+                    ax.legend()
+                    ax.grid(True, linestyle=":", alpha=0.6)  # Add grid
+
+                    await cl.Message(
+                        content="MACD & Signal Line",
+                        elements=[
+                            cl.Pyplot(name="plot", figure=fig, display="inline"),
+                        ],
+                    ).send()
+
+            except Exception as e:
+                print(f"Error creating image: {e}")
         if (
             message.content
             and not isinstance(message, HumanMessage)

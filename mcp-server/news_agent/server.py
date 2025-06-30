@@ -109,7 +109,7 @@ def get_all_news(
         return f"An unexpected error occurred: {e}"
 
 
-@mcp.tool()
+# @mcp.tool()
 def get_top_headlines(
     query: Optional[str] = None,
     sources: Optional[str] = None,
@@ -163,7 +163,7 @@ def get_top_headlines(
         return {"status": "error", "message": f"An unexpected error occurred: {e}"}
 
 
-@mcp.tool()
+# @mcp.tool()
 def get_sources(
     category: str = "business", language: str = "en", country: Optional[str] = None
 ) -> Dict[str, Any]:
@@ -220,22 +220,13 @@ def to_markdown(articles):
     for article in articles:
         # Extract the relevant fields from the article dictionary
         title = article.get("title", "No Title")
+        description = article.get("description", "No Description")
+        content = article.get("content", "No Content")
         published_at = article.get("publishedAt", "Unknown Publication Date")
-        description = article.get("description", "No Description Available.")
-        content = article.get("content", "No Content Available.")
-
-        logger.info(content)
-
-        # Format the extracted information into Markdown
         markdown_output += f"### {title}\n\n"
-
-        if description:
-            markdown_output += f"{description}\n\n"
-
-        if content:
-            markdown_output += f"**Content:** {content}\n\n"
-
         markdown_output += f"**Published on:** {published_at.split('T')[0]}\n"
+        markdown_output += f"**Description:** {description}\n\n"
+        markdown_output += f"**Content:** {content}\n\n"
         markdown_output += "\n---\n\n"
 
     return markdown_output
