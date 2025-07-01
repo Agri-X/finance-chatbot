@@ -1,5 +1,7 @@
+from calendar import c
 from datetime import datetime
 import json
+import logging
 import os
 import asyncio
 from pathlib import Path
@@ -54,6 +56,7 @@ client = MultiServerMCPClient(
             "command": "npx",
             "args": ["-y", "@modelcontextprotocol/server-memory"],
         },
+        "fetch": {"transport": "stdio", "command": "uvx", "args": ["mcp-server-fetch"]},
     }  # type: ignore
 )
 
@@ -105,7 +108,7 @@ Your operational workflow involves:
     * **Indicators Calculation:** Calculate RSI (14-period), SMA (50, 100, 200 days), MACD (standard parameters), and Fibonacci retracement levels.
     * **Pattern Recognition:** Identify and interpret significant chart patterns (e.g., Golden Cross, Death Cross).
     * **Interpretation:** Translate indicator values and patterns into clear interpretations of market trends and potential entry/exit signals.
-    * **Chart:** Generate a chart for the analysis using an available tool.
+    * **Chart:** call generate_chart tool then ignore response from the tools, it handled by other service.
 
 6. **Recommendation Generation (for Analysis Requests)**:
     * **Note:** This step is _bypassed_ if the user's request is purely for news.
@@ -202,6 +205,16 @@ Rules:
     return {"messages": messages[:-1] + [formatted_response]}
 
 
+async def render_chart(state: MessagesState):
+    """Format the response using the formatter model"""
+    messages = state["messages"]
+    last_tool_message = json.loads(messages[-1].content)
+    logging.info(f"render_chart: {last_tool_message}")
+
+    await generate_charts_from_embedded_data(last_tool_message["chart"])
+    return {"messages": messages}
+
+
 # Conditional Edge Functions
 def should_use_tools(state: MessagesState) -> Literal["tools", "analyze"]:
     """Route to tools if model made tool calls, otherwise analyze response"""
@@ -220,14 +233,30 @@ def should_format_response(state: MessagesState) -> Literal["format", "END"]:
     return "END"
 
 
-def after_tools(state: MessagesState) -> Literal["agent", "END"]:
-    """After using tools, decide if we need to call the agent again"""
+def after_tools(
+    state: MessagesState,
+) -> Literal["agent", "render_or_end"]:  # Renamed to better reflect its decision
+    """After using tools, decide if we need to call the agent again or render/end"""
     messages = state["messages"]
 
-    # Check if the last message is a tool result
     if hasattr(messages[-1], "type") and messages[-1].type == "tool":
-        return "agent"  # Go back to agent to process tool results
-    return "END"
+        return "render_or_end"
+    return "agent"
+
+
+def should_render_chart(state: MessagesState) -> Literal["render_chart", "agent"]:
+    """Decide whether to render a chart based on the last message"""
+    messages = state["messages"]
+    logging.info(f"should_render_chart: {messages[-1].content}")
+    try:
+        last_message = json.loads(messages[-1].content)
+
+        logging.info(f"should_render_chart: {type(last_message)}")
+        if "chart" in last_message and last_message["chart"]:
+            return "render_chart"
+        return "agent"
+    except Exception as e:
+        return "agent"
 
 
 # Build the StateGraph
@@ -237,7 +266,9 @@ builder = StateGraph(MessagesState)
 builder.add_node("agent", call_main_model)
 builder.add_node("tools", tool_node)
 builder.add_node("analyze", analyze_response_need)
+builder.add_node("render_chart", render_chart)
 builder.add_node("format", format_final_response)
+builder.add_node("should_render_chart_decision", lambda state: state)
 
 # Add edges
 builder.add_edge(START, "agent")
@@ -247,12 +278,28 @@ builder.add_conditional_edges(
     "agent", should_use_tools, {"tools": "tools", "analyze": "analyze"}
 )
 
-builder.add_conditional_edges("tools", after_tools, {"agent": "agent", "END": END})
+# After tools, decide if we need to process the tool output (agent) or check for chart/end
+builder.add_conditional_edges(
+    "tools",
+    after_tools,
+    {
+        "agent": "agent",
+        "render_or_end": "should_render_chart_decision",
+    },
+)
+
+# This conditional edge starts from the newly added node
+builder.add_conditional_edges(
+    "should_render_chart_decision",
+    should_render_chart,
+    {"render_chart": "render_chart", "agent": "agent"},
+)
 
 builder.add_conditional_edges(
     "analyze", should_format_response, {"format": "format", "END": END}
 )
 
+builder.add_edge("render_chart", "agent")
 builder.add_edge("format", END)
 
 # Compile the graph
@@ -280,19 +327,99 @@ async def on_chat_start():
         ).send()
         return
 
-    await cl.Message(content=f"Welcome back, {user.identifier}!").send()
-    await cl.Message(
-        content="""
-I am an AI Investment Analyst designed to provide comprehensive financial analysis and actionable trading recommendations. 
-My capabilities include:
-1.  User Query Interpretation: Understanding your requests for stock tickers or financial information.
-2.  Data Acquisition: Gathering relevant financial data, including market sentiment (CNN Fear & Greed Index), historical prices, and other key financial metrics.
-3.  Financial Report Analysis: Summarizing financial statements, earnings reports, and identifying significant trends.
-4.  News & Event Synthesis: Fetching and summarizing financial news and events that could impact trading decisions. I can also find ticker symbols if needed.
-5.  Technical Analysis: Calculating and interpreting various technical indicators like RSI, SMA, MACD, and Bollinger Bands to identify market trends and signals.
-6.  Recommendation Generation: Combining all insights to generate clear buy or sell signals with detailed rationales.
-"""
-    ).send()
+
+async def generate_charts_from_embedded_data(chart_configs):
+    """
+    Generates and sends multiple plots from a configuration file
+    that includes embedded data.
+
+    Args:
+        chart_configs (list): A list of dictionaries, where each dict
+                              defines a chart and contains its own data.
+    """
+    logging.info(f"generate_charts_from_embedded_data: {chart_configs}")
+
+    for config in chart_configs:
+        # 1. Create a DataFrame from the embedded data
+        df = pd.DataFrame(config["data"])
+
+        # Set the index column (e.g., 'Date') and convert it to datetime
+        if "index_column" in config:
+            df.set_index(config["index_column"], inplace=True)
+            df.index = pd.to_datetime(df.index)
+
+        # 2. Create the plot
+        figsize = tuple(config.get("figsize", (20, 10)))
+        fig, ax = plt.subplots(figsize=figsize)
+
+        # Plot the primary data lines
+        if "plots" in config:
+            for plot_info in config["plots"]:
+                plot_kwargs = {
+                    "label": plot_info.get("label"),
+                    "color": plot_info.get("color"),
+                    "linestyle": plot_info.get("linestyle"),
+                }
+                plot_kwargs = {k: v for k, v in plot_kwargs.items() if v is not None}
+                ax.plot(df[plot_info["data_key"]], **plot_kwargs)
+
+        # Add any horizontal lines
+        if "hlines" in config:
+            for hline_info in config["hlines"]:
+                ax.axhline(**hline_info)
+
+        # 3. Finalize and send the plot
+        ax.legend()
+        ax.grid(True, linestyle=":", alpha=0.6)
+
+        await cl.Message(
+            content=config["title"],
+            elements=[
+                cl.Pyplot(name="plot", figure=fig, display="inline"),
+            ],
+        ).send()
+
+
+@cl.set_starters  # type: ignore
+async def set_starters():
+    """Chat starter suggestions with better labels and a prompt for capabilities overview."""
+
+    starters = [
+        (
+            "📊 NVIDIA Technical Breakdown",
+            "Can you provide a complete technical analysis and recommendation for NVIDIA (NVDA)?",
+        ),
+        (
+            "📈 Apple RSI & Moving Average",
+            "What are the current RSI and 50-day moving average for Apple Inc.?",
+        ),
+        (
+            "📰 Tesla Weekly Financial Recap",
+            "Summarize the latest financial news for Tesla from the past week.",
+        ),
+        (
+            "📉 Fear & Greed Index Insights",
+            "What is the current CNN Fear & Greed Index, and how has it trended over the last 30 days?",
+        ),
+        (
+            "🔍 Microsoft vs Alphabet Performance",
+            "Compare the recent stock performance of Microsoft (MSFT) and Alphabet (GOOGL).",
+        ),
+        (
+            "🛒 Add Amazon to Watchlist & Earnings Summary",
+            "Add Amazon (AMZN) to my watchlist and give me a summary of its recent earnings report.",
+        ),
+        (
+            "📋 Watchlist Price Snapshot",
+            "What are the latest prices for the stocks on my watchlist?",
+        ),
+        (
+            "🤖 What Can You Do?",
+            "List all your financial and analytical capabilities in detail, including data sources, supported analysis types, and watchlist features.",
+        ),
+    ]
+
+    return [cl.Starter(label=label, message=message) for label, message in starters]
 
 
 @cl.on_message
@@ -309,75 +436,18 @@ async def on_message(msg: cl.Message):
     thread_id = f"{user.identifier}_{cl.context.session.id}"
     config = {"configurable": {"thread_id": thread_id}}
 
-    cb = cl.LangchainCallbackHandler(
-        stream_final_answer=True,
-    )
+    cb = cl.LangchainCallbackHandler(stream_final_answer=True)
     final_answer = cl.Message(content="")
 
-    async for message, metadata, *sls in graph.astream(
+    async for message, metadata in graph.astream(
         {"messages": [HumanMessage(content=msg.content)]},
         stream_mode="messages",
         config=RunnableConfig(callbacks=[cb], **config),
     ):
-        print("META=", metadata["langgraph_node"])
-        if metadata["langgraph_node"] == "tools" and message.content:
-            try:
-                msg_parsed = [json.loads(x) for x in json.loads(message.content)]
-                print("msg_parsed", msg_parsed)
-                # print("message", message.content)
-                if "draw" in msg_parsed[1] and msg_parsed[1]["draw"]["type"] == 1:
-                    df = pd.DataFrame.from_dict(msg_parsed[1]["draw"]["data"])
-
-                    fig, ax = plt.subplots(figsize=(20, 10))
-                    ax.plot(
-                        df["Close," + msg_parsed[0]["ticker"].upper()],
-                        label="Close Price",
-                    )
-                    ax.plot(df["MA20,"], label="20-Day MA")
-                    ax.plot(df["MA50,"], label="50-Day MA", linestyle="--")
-                    ax.legend()
-                    ax.grid(True, linestyle=":", alpha=0.6)
-                    await cl.Message(
-                        content=f"Price & Moving Averages",
-                        elements=[
-                            cl.Pyplot(name="plot", figure=fig, display="inline"),
-                        ],
-                    ).send()
-
-                    fig, ax = plt.subplots(figsize=(20, 10))
-                    ax.plot(df["RSI,"], label="RSI", color="purple")
-                    ax.axhline(70, color="red", linestyle="--", label="Overbought")
-                    ax.axhline(30, color="green", linestyle="--", label="Oversold")
-                    ax.legend()
-                    ax.grid(True, linestyle=":", alpha=0.6)  # Add grid
-
-                    await cl.Message(
-                        content="Relative Strength Index (RSI)",
-                        elements=[
-                            cl.Pyplot(name="plot", figure=fig, display="inline"),
-                        ],
-                    ).send()
-
-                    fig, ax = plt.subplots(figsize=(20, 10))
-                    ax.plot(df["MACD,"], label="MACD", color="blue")
-                    ax.plot(df["Signal,"], label="Signal Line", color="orange")
-                    ax.legend()
-                    ax.grid(True, linestyle=":", alpha=0.6)  # Add grid
-
-                    await cl.Message(
-                        content="MACD & Signal Line",
-                        elements=[
-                            cl.Pyplot(name="plot", figure=fig, display="inline"),
-                        ],
-                    ).send()
-
-            except Exception as e:
-                print(f"Error creating image: {e}")
         if (
             message.content
             and not isinstance(message, HumanMessage)
             and not metadata["langgraph_node"] == "tools"
-            # and not metadata["langgraph_node"] == "agent"
         ):
             await final_answer.stream_token(message.content)
 

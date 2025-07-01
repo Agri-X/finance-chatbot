@@ -10,6 +10,7 @@ from typing import List
 import matplotlib.pyplot as plt
 
 from utils.technical_indicator import TechnicalIndicators
+import chainlit as cl
 
 
 # Create the MCP server instance
@@ -721,76 +722,129 @@ def get_realtime_watchlist_prices():
     return dict(sorted(watchlist_prices.items()))
 
 
+def clean_column_name(col_name):
+    """
+    Cleans a single column name by removing parentheses and the ticker part.
+    Assumes the ticker part is ', TICKER)' where TICKER is a string like 'AMD'.
+    """
+    if isinstance(col_name, tuple):
+        col_name = ", ".join(col_name)
+    col_name = col_name.replace("(", "").replace(")", "")
+    import re
+
+    col_name = re.sub(r",\s*[A-Z]+\s*$", "", col_name)
+    col_name = re.sub(r",\s*[A-Z]+\s*\)", "", col_name)
+    return col_name.strip()
+
+
 @mcp.tool()
-def generate_chart(ticker):
+async def generate_chart(ticker, period="5mo", interval="1d"):
     """
     Generate a chart for the given stock ticker symbol.
 
     Parameters:
-        ticker (str): Stock ticker symbol (e.g., 'AAPL', 'TSLA')
+        period : str
+            Valid periods: 1d,5d,1mo,3mo,6mo,1y,2y,5y,10y,ytd,max
+            Default: 1mo
+            Either Use period parameter or use start and end
+        interval : str
+            Valid intervals: 1m,2m,5m,15m,30m,60m,90m,1h,1d,5d,1wk,1mo,3mo
+            Intraday data cannot extend last 60 days
     """
-    # Download 1-month daily stock data
-    df = yf.download(ticker, period="5mo", interval="1d")
+    df = yf.download(ticker, period=period, interval=interval)
+
     if df.empty:
-        # Return a dictionary with summary and no plot if no data
         return {
             "summary": f"❌ No data found for {ticker.upper()}. Please check the ticker symbol.",
             "plot": None,
             "ticker": ticker.upper(),
         }
 
+    df.columns = [clean_column_name(col) for col in df.columns]
     df.dropna(inplace=True)
 
     # Moving Averages
     df["MA20"] = df["Close"].rolling(window=20).mean()
     df["MA50"] = df["Close"].rolling(window=50).mean()
 
-    # RSI (Relative Strength Index)
-    # Calculate daily price changes
+    # RSI
     delta = df["Close"].diff()
-    # Separate gains and losses
     gain = delta.copy()
     loss = delta.copy()
-    gain[gain < 0] = 0  # Gains are positive changes, set negative to 0
-    loss[loss > 0] = 0  # Losses are negative changes, set positive to 0
-    # Calculate average gains and losses over 14 periods
+    gain[gain < 0] = 0
+    loss[loss > 0] = 0
     avg_gain = gain.rolling(window=14).mean()
-    avg_loss = -loss.rolling(window=14).mean()  # Make losses positive for calculation
-    # Calculate Relative Strength (RS)
+    avg_loss = -loss.rolling(window=14).mean()
     rs = avg_gain / avg_loss
-    # Calculate Relative Strength Index (RSI)
     df["RSI"] = 100 - (100 / (1 + rs))
 
-    # MACD (Moving Average Convergence Divergence)
-    # Calculate 12-period Exponential Moving Average (EMA)
+    # MACD
     exp1 = df["Close"].ewm(span=12, adjust=False).mean()
-    # Calculate 26-period Exponential Moving Average (EMA)
     exp2 = df["Close"].ewm(span=26, adjust=False).mean()
-    # Calculate MACD line
     df["MACD"] = exp1 - exp2
-    # Calculate 9-period EMA of the MACD line (Signal Line)
     df["Signal"] = df["MACD"].ewm(span=9, adjust=False).mean()
 
-    # Get latest values for summary
-    latest = df.iloc[-1]
+    df.dropna(inplace=True)
 
-    # Prepare summary text
-    summary_text = f"\n📊 Trend Analysis for {ticker.upper()} (Past 1 Month):\n"
-    summary_data = {
-        "Latest Close": latest["Close"],
-        "20-Day MA": latest["MA20"],
-        "50-Day MA": latest["MA50"],
-        "RSI": latest["RSI"],
-        "MACD": latest["MACD"],
-        "Signal Line": latest["Signal"],
-    }
-    for key, value in summary_data.items():
-        summary_text += f"{key}: {float(value):.2f}\n"
+    # Ensure Date column
+    df.index = pd.to_datetime(df.index)
+    df = df.reset_index()
+    if "Date" not in df.columns:
+        df.rename(columns={"index": "Date"}, inplace=True)
 
     return {
-        # "summary": summary_text,
-        "ticker": ticker.upper(),  # Include ticker for naming the image in Chainlit
-    }, {"draw": {"type": 1, "data": df.to_dict()}}
+        "chart": [
+            {
+                "title": "Price & Moving Averages",
+                "figsize": [20, 10],
+                "index_column": "Date",
+                "data": {
+                    "Date": df["Date"].dt.strftime("%Y-%m-%d").tolist(),
+                    f"Close,{ticker.upper()}": df["Close"].round(2).tolist(),
+                    "MA20,": df["MA20"].round(2).tolist(),
+                    "MA50,": df["MA50"].round(2).tolist(),
+                },
+                "plots": [
+                    {"data_key": f"Close,{ticker.upper()}", "label": "Close Price"},
+                    {"data_key": "MA20,", "label": "20-Day MA"},
+                    {"data_key": "MA50,", "label": "50-Day MA", "linestyle": "--"},
+                ],
+            },
+            {
+                "title": "Relative Strength Index (RSI)",
+                "figsize": [20, 10],
+                "index_column": "Date",
+                "data": {
+                    "Date": df["Date"].dt.strftime("%Y-%m-%d").tolist(),
+                    "RSI,": df["RSI"].round(2).tolist(),
+                },
+                "plots": [{"data_key": "RSI,", "label": "RSI", "color": "purple"}],
+                "hlines": [
+                    {"y": 70, "color": "red", "linestyle": "--", "label": "Overbought"},
+                    {"y": 30, "color": "green", "linestyle": "--", "label": "Oversold"},
+                ],
+            },
+            {
+                "title": "MACD & Signal Line",
+                "figsize": [20, 10],
+                "index_column": "Date",
+                "data": {
+                    "Date": df["Date"].dt.strftime("%Y-%m-%d").tolist(),
+                    "MACD,": df["MACD"].round(2).tolist(),
+                    "Signal,": df["Signal"].round(2).tolist(),
+                },
+                "plots": [
+                    {"data_key": "MACD,", "label": "MACD", "color": "blue"},
+                    {
+                        "data_key": "Signal,",
+                        "label": "Signal Line",
+                        "color": "orange",
+                        "linestyle": "--",
+                    },
+                ],
+            },
+        ]
+    }
 
 
 # --- Start the background price update thread ---
