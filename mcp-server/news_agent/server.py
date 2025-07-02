@@ -219,7 +219,7 @@ def to_markdown(articles):
     markdown_output = ""
     for article in articles:
         # Extract the relevant fields from the article dictionary
-        title = article.get("title", "No Title")
+        title = article.get("title", "No Title").strip()
         description = article.get("description", "No Description")
         content = article.get("content", "No Content")
         published_at = article.get("publishedAt", "Unknown Publication Date")

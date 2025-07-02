@@ -1,24 +1,14 @@
-import base64
-import io
+import logging
 from venv import logger
 import pandas as pd
 import yfinance as yf
 from mcp.server.fastmcp import FastMCP
-import threading
-import time
 from typing import List
-import matplotlib.pyplot as plt
 
 from utils.technical_indicator import TechnicalIndicators
-import chainlit as cl
 
 
-# Create the MCP server instance
 mcp = FastMCP("Stock Price Server")
-
-# In-memory watchlist and real-time price cache
-watchlist = set()
-watchlist_prices = {}
 
 
 # --- Utility Functions ---
@@ -663,65 +653,6 @@ def compare_stocks(symbol1: str, symbol2: str):
         return f"Error comparing stocks: {e}"
 
 
-# --- Watchlist Management ---
-@mcp.tool()
-def add_to_watchlist(symbol: str):
-    symbol = symbol.upper()
-    watchlist.add(symbol)
-    return f"[Watchlist] Added {symbol}."
-
-
-@mcp.tool()
-def remove_from_watchlist(symbol: str):
-    symbol = symbol.upper()
-    if symbol in watchlist:
-        watchlist.remove(symbol)
-        return f"[Watchlist] Removed {symbol}."
-    return f"[Watchlist] {symbol} was not in the list."
-
-
-@mcp.tool()
-def get_watchlist():
-    return sorted(watchlist)
-
-
-@mcp.tool()
-def get_watchlist_prices():
-    """
-    Get the most recent prices for all stocks in the watchlist.
-    """
-    prices = {}
-    for symbol in sorted(watchlist):
-        try:
-            prices[symbol] = round(get_stock_price(symbol), 2)
-        except Exception as e:
-            prices[symbol] = f"Error: {e}"
-    return prices
-
-
-# --- Simulated Real-Time Updates ---
-def update_prices():
-    """
-    Background thread to update watchlist prices every 30 seconds.
-    """
-    while True:
-        for symbol in list(watchlist):  # Use list to avoid set size change errors
-            try:
-                ticker = fetch_ticker(symbol)
-                watchlist_prices[symbol] = round(safe_get_price(ticker), 2)
-            except Exception as e:
-                watchlist_prices[symbol] = f"Error: {e}"
-        time.sleep(30)
-
-
-@mcp.tool()
-def get_realtime_watchlist_prices():
-    """
-    Get real-time cached prices from the background updater.
-    """
-    return dict(sorted(watchlist_prices.items()))
-
-
 def clean_column_name(col_name):
     """
     Cleans a single column name by removing parentheses and the ticker part.
@@ -846,10 +777,6 @@ async def generate_chart(ticker, period="5mo", interval="1d"):
         ]
     }
 
-
-# --- Start the background price update thread ---
-price_update_thread = threading.Thread(target=update_prices, daemon=True)
-price_update_thread.start()
 
 # Run the server
 if __name__ == "__main__":

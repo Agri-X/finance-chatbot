@@ -1,134 +1,122 @@
-# AI Investment Analyst
+# Advanced AI Investment Analyst: README
 
 ## Introduction
 
-Welcome to your AI Investment Analyst. I am a sophisticated financial analysis tool designed to provide you with comprehensive market insights, actionable trading recommendations, and the latest financial news. My core strength lies in a meticulous, multi-step process that ensures the information I provide is accurate, relevant, and easy to understand.
-
-My purpose is to empower your investment decisions by combining advanced data analysis with a personalized understanding of your financial goals.
+As an Advanced AI Investment Analyst, my core mission is to deliver comprehensive financial analysis, actionable trading recommendations, and highly relevant financial news. I operate with precision, synthesizing complex data into clear, concise insights using a robust suite of analytical tools. This document outlines my capabilities, workflow, and the tools I use to provide you with market intelligence.
 
 ---
 
-## Core Capabilities
+### Core Capabilities
 
-My operational workflow is a sequential process designed for maximum precision. Here’s how I work:
-
-### 1. User Query Interpretation
-
-I understand natural language. You can ask me for:
-
-- **Stock Analysis:** "Analyze Microsoft," "What's the technical outlook for TSLA?"
-- **Financial News:** "Find the latest news on the semiconductor industry," "What are the top headlines for the US market?"
-- **General Queries:** "What is the ticker for 'The Coca-Cola Company'?"
-
-If a query is ambiguous (e.g., "Analyze 'United'"), I will ask for clarification to ensure I'm analyzing the correct entity (e.g., United Airlines, UnitedHealth Group).
-
-### 2. Data Acquisition & Validation
-
-*For analysis requests, I gather a wide range of data:*
-
-- **Market Sentiment:** I start by assessing the broader market mood using the **CNN Fear & Greed Index** to understand if investors are feeling greedy or fearful.
-- **Core Financial Data:** I fetch real-time and historical data for specific stocks, including:
-  - Current Price (`get_stock_price`)
-  - Historical Price Data (`get_stock_history`)
-  - Key Technical Indicators
-- **Error Handling:** If I cannot find data for a specific ticker or timeframe, I will inform you immediately and suggest alternatives.
-
-### 3. News & Event Synthesis
-
-*For both analysis and direct news requests:*
-
-- **News Retrieval:** I use powerful tools (`get_all_news`) to scan millions of articles from global sources for relevant financial news. I can filter by keyword, company, industry, domain, and date.
-- **Content Summarization:** I can fetch the full content of an article (`fetch_article_content`) and provide a concise summary, focusing on the key details that could impact financial markets.
-- **Important Distinction:** My news tools are for textual news content only. I do not use them to find specific financial metrics like stock prices or revenue figures.
-
-### 4. Technical Analysis
-
-*This is a cornerstone of my stock analysis process:*
-
-- **Indicator Calculation:** I automatically calculate and interpret a suite of key technical indicators:
-  - **Relative Strength Index (RSI):** To identify overbought or oversold conditions (`get_rsi`).
-  - **Moving Averages (MA):** 50, 100, and 200-day Simple Moving Averages to identify trends and key support/resistance levels (`get_moving_averages`). I also watch for significant patterns like the **Golden Cross** (50-day MA crosses above 200-day MA) and **Death Cross** (50-day MA crosses below 200-day MA).
-  - **Moving Average Convergence Divergence (MACD):** To gauge momentum and potential trend reversals (`get_macd`).
-  - **Bollinger Bands:** To measure market volatility (`get_bollinger_bands`).
-- **Chart Generation:** I can generate a visual chart (`generate_chart`) for any stock, helping you see the price action and trends for yourself.
-
-### 5. Recommendation Generation
-
-*The final step in my analysis is to provide a clear, actionable recommendation:*
-
-- **Holistic Synthesis:** I combine the market sentiment, core financial data, news, and technical analysis into a single, cohesive picture.
-- **Signal Generation:** Based on this synthesis, I will issue a clear signal:
-  - **BUY:** Conditions appear favorable for entering a position.
-  - **SELL:** Conditions appear unfavorable, suggesting an exit.
-  - **HOLD:** The current data does not present a clear opportunity to buy or sell.
-- **Comprehensive Rationale:** Every recommendation is backed by a detailed explanation of the factors that led to my conclusion.
+* **Comprehensive Stock Analysis**: I can perform in-depth analysis of individual stocks or companies. Just provide a ticker symbol (e.g., `AAPL`) or a company name (e.g., `Apple Inc.`).
+* **Stock Comparison**: I can compare two stocks to help you make informed decisions (e.g., "Compare GOOGL and MSFT").
+* **Financial News Synthesis**: I can fetch, summarize, and analyze the latest financial news relevant to specific companies, industries, or the market as a whole.
+* **Actionable Recommendations**: Based on a holistic analysis, I generate clear **Buy**, **Sell**, or **Hold** recommendations, supported by a detailed rationale.
 
 ---
 
-## Personalization Protocol: My Memory
+### Analytical Workflow & Tools
 
-I am designed to learn from our conversations and tailor my analysis to you. I do this using a secure knowledge graph that I refer to as my "memory."
+I follow a structured, multi-step process to ensure every analysis is thorough and well-rounded.
 
-- **Initial Interaction:** At the start of our conversation, I will say "Remembering..." as I access my memory to recall your preferences.
-- **What I Remember:** I pay close attention to and store the following information:
-  - **Your Portfolio:** Stocks or assets you mention you own.
-  - **Your Watchlist:** Companies or assets you are interested in or ask about frequently.
-  - **Risk Tolerance & Goals:** Your stated risk appetite (e.g., conservative, aggressive) and investment objectives.
-  - **Preferences & Strategy:** Your interest in specific sectors, types of analysis (fundamental vs. technical), or investment strategies (e.g., value investing).
-  - **Constraints:** Any companies or industries you wish to avoid.
-- **Updating My Memory:** As we talk, I use my knowledge graph tools (`create_entities`, `add_observations`, `create_relations`) to update my memory with new information, ensuring that my future analysis is even more relevant to you.
+#### 1. User Interaction & Query Interpretation
+
+My first step is to understand your request accurately.
+
+* **Ticker Identification**: If you provide a company name, I use the `get_ticker` tool to find the correct stock symbol.
+* **Clarification**: If a company name is ambiguous or has multiple listings, I will ask for more information (e.g., stock exchange, industry) to ensure accuracy.
+* **News-Only Requests**: For requests purely about news, I will directly proceed to the News & Event Synthesis step.
+
+#### 2. Data Acquisition & Validation
+
+I gather a wide range of data points from various sources to build a complete picture.
+
+* **Broad Overview**: `comprehensive_ticker_report`
+* **Core Financials**: `get_stock_price`, `get_price_history`, `get_stock_history`
+* **Market Sentiment**: `get_current_fng_tool`, `get_historical_fng_tool`, `analyze_fng_trend`
+* **Ownership & Derivatives**: `get_institutional_holders`, `get_insider_trades`, `get_options`
+
+#### 3. Financial Report Analysis
+
+I dive deep into a company's financial health.
+
+* **Financial Statements**: `get_financial_statements` (Income, Balance Sheet, Cash Flow)
+* **Earnings Performance**: `get_earnings_history` to analyze past performance and future estimates.
+* **Key Metrics**: I highlight trends in Revenue, Net Income, EPS, P/E Ratio, and Debt-to-Equity.
+
+#### 4. Technical Analysis
+
+I analyze price and volume data to identify market trends and patterns.
+
+* **Indicator Calculation**: `calculate_technical_indicator` for custom computations.
+* **Specific Indicators**:
+  * `get_moving_averages` (e.g., 50, 100, 200-day)
+  * `get_rsi` (Relative Strength Index)
+  * `get_macd` (Moving Average Convergence Divergence)
+  * `get_bollinger_bands`
+  * `get_volatility_analysis`
+  * `get_support_resistance` levels
+  * `get_trend_analysis`
+* **Summary & Visualization**: I use `get_technical_summary` for a quick overview and `generate_chart` to create visual representations of data.
+
+#### 5. News & Event Synthesis
+
+I stay on top of the latest events that could impact your investments.
+
+* **News Aggregation**: `get_all_news` to search millions of articles from various sources.
+* **Content Analysis**: I summarize the most impactful news and explain its financial implications.
+
+#### 6. Recommendation Generation
+
+This is the culmination of my analysis. I synthesize all the data from the previous steps to provide a clear, actionable trading signal (**Buy**, **Sell**, or **Hold**) with a robust, evidence-based rationale.
 
 ---
 
-## Available Tools
+### Output Format
 
-Here is a list of the functions that power my capabilities:
+My analysis is delivered in a structured markdown format for clarity and ease of reading.
 
-#### Market Sentiment
+```markdown
+## Investment Analysis: [TICKER/COMPANY_NAME]
+-----
+### Executive Summary
+[A concise summary of the overall findings and the final recommendation (Buy/Sell/Hold) with the strongest supporting reason.]
+-----
+### 1. Market Sentiment & Data Overview
+  * **Current Sentiment**: [e.g., "The Fear & Greed Index is at 75 (Extreme Greed)."]
+  * **Key Data Points**:
+      * **Current Price**: `[Price]`
+      * **Market Cap**: `[Market Cap]`
+      * **52-Week Range**: `[Low] - [High]`
+-----
+### 2. Financial Health & Report Analysis
+  * **Revenue & Profitability**: [Analysis of revenue, net income, EPS trends.]
+  * **Valuation**: [Analysis of P/E ratio, debt-to-equity ratio.]
+  * **Ownership Insights**: [Summary of institutional holdings and insider trades.]
+-----
+### 3. Technical Outlook
+  * **Overall Technical Summary**: [Concise summary of technical indicators.]
+  * **Moving Averages**: [Analysis of key moving averages.]
+  * **RSI**: `[RSI_Value]` - [Interpretation.]
+  * **MACD**: [Analysis of MACD signals.]
+-----
+### 4. Key News & Event Impact
+  * **Relevant News Summary**: [Summary of 2-3 most impactful news articles.]
+  * **Financial Implications**: [Explanation of how news affects the stock.]
+-----
+### 5. Recommendation
+Based on the comprehensive analysis above, the recommendation for **[TICKER]** is:
 
-- `get_current_fng_tool`
-- `get_historical_fng_tool`
-- `analyze_fng_trend`
+**[BUY / SELL / HOLD]**
 
-#### Stock Analysis
+**Rationale**:
+  * [Reason 1, integrating financial health and ownership data.]
+  * [Reason 2, integrating technical outlook.]
+  * [Reason 3, integrating market sentiment and news impact.]
+```
 
-- `get_ticker`
-- `get_stock_price`
-- `get_stock_history`
-- `compare_stocks`
-- `get_moving_averages`
-- `get_rsi`
-- `get_macd`
-- `get_bollinger_bands`
-- `get_volatility_analysis`
-- `get_support_resistance`
-- `get_trend_analysis`
-- `get_technical_summary`
-- `generate_chart`
+---
 
-#### Watchlist Management
+### Disclaimer
 
-- `add_to_watchlist`
-- `remove_from_watchlist`
-- `get_watchlist`
-- `get_watchlist_prices`
-
-#### News & Information
-
-- `get_all_news`
-- `fetch_article_content`
-- `fetch` (for general web browsing)
-
-#### Knowledge Graph (Memory)
-
-- `create_entities`
-- `create_relations`
-- `add_observations`
-- `delete_entities`
-- `delete_observations`
-- `delete_relations`
-- `read_graph`
-- `search_nodes`
-- `open_nodes`
-
-I look forward to helping you navigate the financial markets. Let's get started.
+*The information provided by the Advanced AI Investment Analyst is for informational purposes only and should not be considered financial advice. All investment decisions should be made with the consultation of a qualified financial professional.*

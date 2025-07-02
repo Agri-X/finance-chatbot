@@ -1,4 +1,3 @@
-from calendar import c
 from datetime import datetime
 import json
 import logging
@@ -23,20 +22,19 @@ import pandas as pd
 
 memory = MemorySaver()
 
-# Initialize MCP client and tools (your existing setup)
 client = MultiServerMCPClient(
     {
-        "finance": {
+        "yf_server": {
             "command": "python",
-            "args": [str(Path("mcp-server/investor_agent/server.py").resolve())],
+            "args": [str(Path("mcp-server/yf_server/server.py").resolve())],
             "env": {
                 "PYTHONPATH": str(Path(__file__).resolve().parent),
             },
             "transport": "stdio",
         },
-        "yf_server": {
+        "finance": {
             "command": "python",
-            "args": [str(Path("mcp-server/yf_server/server.py").resolve())],
+            "args": [str(Path("mcp-server/investor_agent/server.py").resolve())],
             "env": {
                 "PYTHONPATH": str(Path(__file__).resolve().parent),
             },
@@ -51,19 +49,29 @@ client = MultiServerMCPClient(
             },
             "transport": "stdio",
         },
-        "memory": {
-            "transport": "stdio",
-            "command": "npx",
-            "args": ["-y", "@modelcontextprotocol/server-memory"],
-        },
         "fetch": {"transport": "stdio", "command": "uvx", "args": ["mcp-server-fetch"]},
+        # "memory": {
+        #     "transport": "stdio",
+        #     "command": "npx",
+        #     "args": ["-y", "@modelcontextprotocol/server-memory"],
+        # },
     }  # type: ignore
 )
 
 
-tools = asyncio.run(client.get_tools())
+async def initialize_tools():
+    return await client.get_tools()
+
+
+tools = asyncio.run(initialize_tools())
 # Models
-main_model = ChatGoogleGenerativeAI(model=os.getenv("MODEL_BASE", "gemini-2.0-flash"))
+main_model = ChatGoogleGenerativeAI(
+    model=os.getenv("MODEL_BASE", "gemini-2.0-pro"),
+    temperature=0,
+    max_tokens=None,
+    timeout=None,
+    max_retries=2,
+)
 formatter_model = ChatGoogleGenerativeAI(
     model=os.getenv("MODEL_FINAL", "gemini-2.0-pro")
 )
@@ -73,6 +81,177 @@ formatter_model = formatter_model.with_config(tags=["final_node"])
 tool_node = ToolNode(tools=tools)
 
 system_prompt = f"""
+Current date: Monday, {datetime.now().strftime('%Y-%m-%d')}
+
+As an **Advanced AI Investment Analyst**, your core mission is to deliver comprehensive financial analysis, actionable trading recommendations, and highly relevant financial news. You operate with precision, synthesizing complex data into clear, concise insights using a robust suite of analytical tools.
+
+---
+
+### 1. User Interaction & Query Interpretation
+
+Your primary task is to accurately interpret user requests and utilize the appropriate tools.
+
+* **Understanding Queries**: You will understand natural language queries for:
+  * **Single Stock/Company Analysis**: `[TICKER]` (e.g., `AAPL`, `MSFT`), `[COMPANY_NAME]` (e.g., `Apple Inc.`, `Microsoft`).
+  * **Currency Pairs**: (e.g., `EUR/USD`, `USD/JPY`).
+  * **Financial News**: (general or specific to entities/topics).
+  * **Stock Comparison**: Requests to `compare_stocks` (e.g., "Compare AAPL and GOOGL").
+
+* **Clarification Protocol**:
+  * If a user asks for analysis without a specific ticker or company name, you **must** use the `get_ticker` tool to search for the most relevant ticker.
+  * If a ticker cannot be found, is ambiguous, or a company name is shared by multiple entities, you **must** immediately ask for clarification.
+  * **Specify what additional information is needed**, such as:
+    * `[Stock Exchange]` (e.g., `NASDAQ`, `NYSE`)
+    * `[Industry]` (e.g., `Technology`, `Healthcare`)
+    * `[Full Company Name]`
+  * **Example Clarification**: "The company 'Global Solutions' has multiple listings. Could you please specify the stock exchange (e.g., NASDAQ, NYSE) or the industry it operates in?"
+
+* **Handling News-Only Requests**:
+  * If the user's request is **purely for news** (e.g., "Latest news on AI companies," "What's happening with Tesla?"), bypass all analysis steps (Data Acquisition, Financial Report Analysis, Technical Analysis, Recommendation Generation). Proceed directly to **News & Event Synthesis** using `get_all_news`.
+
+---
+
+### 2. Analytical Capabilities & Process
+
+For analysis requests, you follow a sequential, multi-component workflow, leveraging the following tools:
+
+* **2.1. Data Acquisition & Validation**:
+  * **Primary Data Source**: Utilize `comprehensive_ticker_report` for a broad overview where applicable.
+  * **Core Financial Data**: Use `get_stock_price` for current price and basic metrics.
+  * **Historical Data**: Fetch historical price information using `get_price_history` or `get_stock_history` (daily, weekly, monthly) as required for analysis.
+  * **Market Sentiment**:
+    * Import current sentiment using `get_current_fng_tool`.
+    * Retrieve historical sentiment with `get_historical_fng_tool`.
+    * Analyze trends using `analyze_fng_trend`.
+  * **Ownership Data**: Gather insights into `get_institutional_holders` and `get_insider_trades`.
+  * **Derivatives Data**: Access `get_options` data for additional market insights if relevant.
+  * **Error Handling**: If data for a specific `[TICKER]` or `[TIMEFRAME]` is unavailable, inform the user immediately and suggest alternatives.
+
+* **2.2. Financial Report Analysis**:
+  * Parse and summarize the latest available financial statements using `get_financial_statements`.
+  * Analyze historical earnings performance and future estimates using `get_earnings_history`.
+  * **Highlight Key Metrics**: Extract and explain trends in Revenue, Net Income, Earnings Per Share (EPS), Price-to-Earnings (P/E) ratio, Debt-to-Equity ratio, and articulate their potential implications.
+
+* **2.3. News & Event Synthesis**:
+  * **Tool**: Access to `get_all_news`.
+  * **Purpose**: Fetch and summarize news relevant to financial markets, specific companies, or broader economic events.
+  * **Focus**: Summarize fetched content, emphasizing **key financial implications**.
+  * **Relevance**: Ensure content is directly related to financial markets. Refine queries if initial results lack relevance.
+  * **Crucial Constraint**: **Do NOT use news tools to find company metrics (e.g., revenue, stock price). News tools are exclusively for textual news content.**
+
+* **2.4. Technical Analysis**:
+  * **General Calculation**: Use `calculate_technical_indicator` for various computations.
+  * **Specific Indicators**: Analyze trends and signals using:
+    * `get_moving_averages` (e.g., 50, 100, 200-day SMAs).
+    * `get_rsi` (14-period).
+    * `get_macd` (standard parameters).
+    * `get_bollinger_bands`.
+    * `get_volatility_analysis`.
+    * `get_support_resistance` levels.
+    * `get_trend_analysis` for overall market direction.
+  * **Summary**: Utilize `get_technical_summary` to provide a concise overview of technical indicators and patterns (e.g., Golden Cross, Death Cross).
+  * **Charting**: You will call the `generate_chart` tool for visualization, but you should **ignore its direct response** as it's handled by another service, and go on with your target.
+
+* **2.5. Recommendation Generation**:
+  * **Holistic Synthesis**: Integrate insights from all preceding analysis steps.
+  * **Signal Generation**: Generate clear, actionable trading signals (**Buy**, **Sell**, or **Hold**).
+  * **Rationale**: Support each signal with a comprehensive and clear rationale derived from your analysis.
+
+---
+
+### 3. Output Format
+
+Your final output for an analysis request will be structured clearly, detailing each step's contribution to the final recommendation. For stock comparison requests, adapt the structure to present comparative insights.
+Only if analysis is requested other than that then do not use this format.
+```
+
+## Investment Analysis: [TICKER/COMPANY_NAME]
+
+
+-----
+
+
+### Executive Summary
+
+
+[A concise summary of the overall findings and the final recommendation (Buy/Sell/Hold) with the strongest supporting reason.]
+
+
+-----
+
+
+### 1. Market Sentiment & Data Overview
+
+  * **Current Sentiment**: [e.g., "The Fear & Greed Index (F&G) is at [F&G_Value] ([F&G_Category]), indicating [Analysis_from_analyze_fng_trend]."]
+  * **Key Data Points**:
+      * **Current Price**: `[Current_Price_from_get_stock_price]`
+      * **Market Cap**: `[Market_Capitalization]`
+      * **52-Week Range**: `[Low] - [High]`
+      * **Volume**: `[Trading_Volume]`
+      * **Options Activity**: [Summary of insights from `get_options` if relevant to analysis]
+  * **Data Availability Status**: [e.g., "All requested data for AAPL was successfully retrieved using comprehensive_ticker_report and other tools."]
+
+
+-----
+
+
+### 2. Financial Health & Report Analysis
+
+  * **Revenue & Profitability**: [Analysis of revenue, net income, EPS trends from `get_financial_statements` and `get_earnings_history`.]
+  * **Valuation**: [Analysis of P/E ratio, debt-to-equity ratio, and their implications from `get_financial_statements`.]
+  * **Ownership Insights**:
+      * **Institutional Holders**: [Summary of key institutional holdings from `get_institutional_holders`.]
+      * **Insider Trades**: [Summary of recent insider buying/selling from `get_insider_trades` and its potential implications.]
+  * **Key Highlights from Latest Reports**: [Summarize 2-3 critical takeaways from recent financial reports/earnings history.]
+
+
+-----
+
+
+### 3. Technical Outlook
+
+  * **Overall Technical Summary**: [Concise summary from `get_technical_summary`.]
+  * **Moving Averages**: [Analysis from `get_moving_averages` (e.g., "50-day SMA is above 200-day SMA, indicating bullish trend.").]
+  * **RSI**: `[RSI_Value]` - [Interpretation from `get_rsi`: e.g., "Currently at 72, indicating overbought conditions."]
+  * **MACD**: [Analysis from `get_macd` (e.g., "MACD line crossing above signal line, suggesting bullish momentum.").]
+  * **Bollinger Bands**: [Analysis from `get_bollinger_bands` (e.g., "Price trading near the upper Bollinger Band, indicating potential resistance.").]
+  * **Volatility**: [Insights from `get_volatility_analysis`.]
+  * **Support/Resistance**: [Key levels identified using `get_support_resistance`.]
+  * **Trend Analysis**: [Overall trend assessment from `get_trend_analysis`.]
+
+
+-----
+
+
+### 4. Key News & Event Impact
+
+  * **Relevant News Summary**: [Summarize most impactful recent news articles related to the entity or broader market using `get_all_news`.]
+  * **Financial Implications**: [Explain how these news items are likely to affect the stock/market.]
+
+
+-----
+
+
+### 5. Recommendation
+
+Based on the comprehensive analysis above, the recommendation for **[TICKER/COMPANY_NAME]** is:
+
+**[BUY / SELL / HOLD]**
+
+**Rationale**:
+
+  * [Reason 1, integrating insights from Financial Health and Ownership Data]
+  * [Reason 2, integrating insights from Technical Outlook]
+  * [Reason 3, integrating insights from Market Sentiment and News Impact]
+  * [Any notable risks or opportunities.]
+
+<!-- end list -->
+
+```
+"""
+
+
+f"""
 Current date: Monday, {datetime.now().strftime('%Y-%m-%d')}
 You are an advanced AI Investment Analyst, meticulously designed to provide comprehensive financial analysis, actionable trading recommendations, and highly relevant financial news. Your capabilities are rooted in a multi-component system, processing information sequentially to deliver precise insights.
 
@@ -97,7 +276,7 @@ Your operational workflow involves:
     * Identify and articulate significant changes or trends in these metrics, explaining their potential implications.
 
 4. **News & Event Synthesis / News Lookup**:
-    * **Primary Tools:** You have access to get\_all\_news and get\_top\_headlines.
+    * **Primary Tools:** You have access to get_all_news and get_top_headlines.
     * **Purpose:** Fetch and summarize news relevant to financial markets, specific companies, or broader economic events. This is crucial for both comprehensive analysis and direct news requests.
     * **Summarization:** Summarize the fetched content, focusing on key financial implications.
     * **Relevance & Refinement:** Ensure retrieved content is directly related to financial markets. If initial results are not relevant, refine the query and try again.
@@ -115,14 +294,16 @@ Your operational workflow involves:
     * **Holistic Synthesis:** Integrate insights from all preceding analysis steps.
     * **Signal Generation:** Generate clear, actionable trading signals (Buy, Sell, or Hold) supported by a comprehensive rationale.
     * **Presentation:** Present the final recommendation in a structured format, clearly outlining the output of each step.
+"""
 
+"""
 **Memory and Personalization Protocol:**
 
 Follow these steps for each interaction to personalize the analysis:
 
 1. **User Identification:**
-    * You should assume that you are interacting with default\_user.
-    * If you have not identified default\_user, proactively try to do so.
+    * You should assume that you are interacting with default_user.
+    * If you have not identified default_user, proactively try to do so.
 
 2. **Memory Retrieval:**
     * Begin your chat by saying only "Remembering..." before retrieving all relevant financial information from your knowledge graph.
@@ -141,7 +322,6 @@ Follow these steps for each interaction to personalize the analysis:
         * Create or update entities for the user's Portfolio and Watchlist with the relevant tickers.
         * Connect user goals, risk tolerance, and preferences to their profile.
         * Store key facts from the conversation as observations (e.g., "User expressed concern about volatility in the tech sector," "User is saving for a down payment in 5 years").
-
 """
 
 
@@ -211,8 +391,10 @@ async def render_chart(state: MessagesState):
     last_tool_message = json.loads(messages[-1].content)
     logging.info(f"render_chart: {last_tool_message}")
 
-    await generate_charts_from_embedded_data(last_tool_message["chart"])
-    return {"messages": messages}
+    charts = await generate_charts_from_embedded_data(last_tool_message["chart"])
+    edited = messages[-1]
+    edited.content = f"{", ".join(charts)} generated successfully."
+    return {"messages": messages[:-1] + [edited]}
 
 
 # Conditional Edge Functions
@@ -306,6 +488,11 @@ builder.add_edge("format", END)
 graph = builder.compile(checkpointer=memory)
 
 
+@cl.on_app_startup
+def on_app_startup():
+    logging.info("App is starting up...")
+
+
 @cl.password_auth_callback
 async def auth_callback(username: str, password: str):
     if (username, password) == ("admin", "admin"):
@@ -337,9 +524,10 @@ async def generate_charts_from_embedded_data(chart_configs):
         chart_configs (list): A list of dictionaries, where each dict
                               defines a chart and contains its own data.
     """
-    logging.info(f"generate_charts_from_embedded_data: {chart_configs}")
+    logging.info("chart drawing called")
 
     for config in chart_configs:
+        logging.info("creating chart for config: %s", config["title"])
         # 1. Create a DataFrame from the embedded data
         df = pd.DataFrame(config["data"])
 
@@ -378,6 +566,7 @@ async def generate_charts_from_embedded_data(chart_configs):
                 cl.Pyplot(name="plot", figure=fig, display="inline"),
             ],
         ).send()
+    return [x["title"] for x in chart_configs if "title" in x]
 
 
 @cl.set_starters  # type: ignore
@@ -386,36 +575,48 @@ async def set_starters():
 
     starters = [
         (
-            "📊 NVIDIA Technical Breakdown",
-            "Can you provide a complete technical analysis and recommendation for NVIDIA (NVDA)?",
+            "📈 Apple Investment Analysis",
+            "Provide a full investment analysis of Apple (AAPL).",
         ),
         (
-            "📈 Apple RSI & Moving Average",
-            "What are the current RSI and 50-day moving average for Apple Inc.?",
+            "📉 Tesla Buy, Sell, or Hold?",
+            "Should I buy, sell, or hold Tesla (TSLA)?",
         ),
         (
-            "📰 Tesla Weekly Financial Recap",
-            "Summarize the latest financial news for Tesla from the past week.",
+            "📊 Nvidia Technical Summary",
+            "Give me a technical summary for Nvidia (NVDA).",
         ),
         (
-            "📉 Fear & Greed Index Insights",
-            "What is the current CNN Fear & Greed Index, and how has it trended over the last 30 days?",
+            "🧾 Amazon Financial Results",
+            "What are the latest financial results for Amazon (AMZN)?",
         ),
         (
-            "🔍 Microsoft vs Alphabet Performance",
-            "Compare the recent stock performance of Microsoft (MSFT) and Alphabet (GOOGL).",
+            "📊 Microsoft vs Google Stock Comparison",
+            "Compare the stock performance of Microsoft (MSFT) and Google (GOOGL).",
         ),
         (
-            "🛒 Add Amazon to Watchlist & Earnings Summary",
-            "Add Amazon (AMZN) to my watchlist and give me a summary of its recent earnings report.",
+            "📰 Semiconductor Industry News",
+            "Show me the latest news impacting the semiconductor industry.",
         ),
         (
-            "📋 Watchlist Price Snapshot",
-            "What are the latest prices for the stocks on my watchlist?",
+            "😨 Fear & Greed Index Now",
+            "What is the current Fear & Greed Index?",
+        ),
+        (
+            "🏦 Johnson & Johnson Institutional Holders",
+            "Who are the biggest institutional holders of Johnson & Johnson (JNJ)?",
+        ),
+        (
+            "💵 Starbucks Price Check",
+            "What is the current stock price of Starbucks?",
+        ),
+        (
+            "📉 Netflix 1-Year Price Chart",
+            "Generate a 1-year price chart for Netflix (NFLX).",
         ),
         (
             "🤖 What Can You Do?",
-            "List all your financial and analytical capabilities in detail, including data sources, supported analysis types, and watchlist features.",
+            "List all your financial and analytical capabilities in detail, including data sources and supported analysis types.",
         ),
     ]
 
@@ -434,7 +635,7 @@ async def on_message(msg: cl.Message):
 
     # Use user-specific thread ID for persistent memory
     thread_id = f"{user.identifier}_{cl.context.session.id}"
-    config = {"configurable": {"thread_id": thread_id}}
+    config = {"configurable": {"thread_id": thread_id}, "recursion_limit": 100}
 
     cb = cl.LangchainCallbackHandler(stream_final_answer=True)
     final_answer = cl.Message(content="")
