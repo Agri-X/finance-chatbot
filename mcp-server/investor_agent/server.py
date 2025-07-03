@@ -7,14 +7,7 @@ from utils import cnn_fng_utils, yfinance_utils
 from mcp.server.fastmcp import FastMCP
 from tabulate import tabulate
 from yfinance.exceptions import YFRateLimitError
-
-
-try:
-    import talib
-
-    _ta_available = True
-except ImportError:
-    _ta_available = False
+import talib
 
 
 logger = logging.getLogger(__name__)
@@ -32,8 +25,6 @@ mcp = FastMCP(
 @mcp.tool()
 def comprehensive_ticker_report(ticker: str) -> str:
     """Get comprehensive report for ticker: overview, news, metrics, performance, dates, analyst recommendations, and upgrades/downgrades."""
-    logger.info("Getting ticker data for:", ticker)
-    print("Getting ticker data for:", ticker)
     try:
         info = yfinance_utils.get_ticker_info(ticker)
         if not info:
@@ -652,15 +643,6 @@ def calculate_technical_indicator(
     """
 
     try:
-        # Check if TA-Lib is available first
-        if not _ta_available:
-            return (
-                "Error: The 'calculate_technical_indicator' tool requires the optional TA-Lib library.\n"
-                "Installation instructions:\n"
-                "1. Install the TA-Lib C library: https://ta-lib.org/install/\n"
-                "2. Install the Python wrapper: uv add ta-lib\n"
-                "Alternative: Use 'uvx investor-agent[ta]' for automatic installation"
-            )
 
         # Fetch sufficient historical data (use the provided period, ensuring it's daily)
         history = yfinance_utils.get_price_history(ticker, period=period)

@@ -200,14 +200,14 @@ def get_historical_bars(
     end: Optional[datetime] = None,
 ):
     """
-    Get historical price bars for a symbol
-Do make sure you are already clear on what each item is by then
-    :param historical_client: Alpaca historical data client
-    :param symbol: Stock symbol
-    :param timeframe: Time interval for bars
-    :param start: Start date for historical data
-    :param end: End date for historical data
-    :return: List of AlpacaBar models
+        Get historical price bars for a symbol
+    Do make sure you are already clear on what each item is by then
+        :param historical_client: Alpaca historical data client
+        :param symbol: Stock symbol
+        :param timeframe: Time interval for bars
+        :param start: Start date for historical data
+        :param end: End date for historical data
+        :return: List of AlpacaBar models
     """
     if not start:
         start = datetime.now() - timedelta(days=30)

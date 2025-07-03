@@ -1,4 +1,3 @@
-import logging
 from venv import logger
 import pandas as pd
 import yfinance as yf
@@ -81,22 +80,125 @@ def get_moving_averages(
         windows: List of MA periods to calculate
 
     Returns:
-        Dictionary with moving average values
+        Dictionary with moving average values and chart data
     """
     try:
         data = ti.get_stock_data(symbol, period, interval)
         result = {}
 
+        # Initialize chart_data structure
+        chart_data_plots = [
+            {
+                "data_key": f"Close,{symbol}",
+                "label": "Close Price",
+                "color": "blue",
+            }
+        ]
+        chart_data_values = {
+            "Date": data.index.strftime("%Y-%m-%d").tolist(),
+            f"Close,{symbol}": data["Close"].tolist(),
+        }
+
+        # Dynamically add SMA and EMA to results and chart_data
         for window in windows:
             ma = ti.calculate_moving_average(data, window)
             ema = ti.calculate_exponential_moving_average(data, window)
 
-            result[f"SMA_{window}"] = ma.dropna().tolist()
-            result[f"EMA_{window}"] = ema.dropna().tolist()
+            # Ensure lists are of the same length by dropping NaNs and aligning
+            # Find the minimum non-NaN index across all series for alignment
+            first_valid_index_ma = ma.first_valid_index()
+            first_valid_index_ema = ema.first_valid_index()
 
-        # Also include dates for reference
-        result["dates"] = data.index.strftime("%Y-%m-%d").tolist()
-        result["close"] = data["Close"].tolist()
+            # If any MA or EMA is entirely NaN, skip it for that window
+            if first_valid_index_ma is None and first_valid_index_ema is None:
+                continue
+
+            # Determine the starting index for slicing to align all series
+            start_index_for_alignment = 0
+            if first_valid_index_ma is not None:
+                start_index_for_alignment = max(
+                    start_index_for_alignment, data.index.get_loc(first_valid_index_ma)
+                )
+            if first_valid_index_ema is not None:
+                start_index_for_alignment = max(
+                    start_index_for_alignment, data.index.get_loc(first_valid_index_ema)
+                )
+
+            aligned_dates = (
+                data.index[start_index_for_alignment:].strftime("%Y-%m-%d").tolist()
+            )
+            aligned_close = data["Close"][start_index_for_alignment:].tolist()
+            aligned_ma = (
+                ma[start_index_for_alignment:].tolist()
+                if first_valid_index_ma is not None
+                else [None] * len(aligned_dates)
+            )
+            aligned_ema = (
+                ema[start_index_for_alignment:].tolist()
+                if first_valid_index_ema is not None
+                else [None] * len(aligned_dates)
+            )
+
+            result[f"SMA_{window}"] = aligned_ma
+            result[f"EMA_{window}"] = aligned_ema
+
+            # Add to chart data, ensuring alignment
+            chart_data_values[f"SMA_{window},"] = aligned_ma
+            chart_data_values[f"EMA_{window},"] = aligned_ema
+
+            chart_data_plots.append(
+                {
+                    "data_key": f"SMA_{window},",
+                    "label": f"SMA {window}",
+                    "color": "green",
+                    "linestyle": "--",
+                }
+            )
+            chart_data_plots.append(
+                {
+                    "data_key": f"EMA_{window},",
+                    "label": f"EMA {window}",
+                    "color": "purple",
+                    "linestyle": "-",
+                }
+            )
+
+        # Update dates and close to be aligned with the latest start of any MA/EMA
+        # This makes sure the chart's 'Date' and 'Close' lists match the length of the MAs/EMAs if they are shorter due to NaNs.
+        # If there are no MAs/EMAs calculated (e.g. invalid window or data), we ensure at least 'Date' and 'Close' are present.
+        if (
+            chart_data_values
+        ):  # Check if chart_data_values has been populated beyond just dates/close initially
+            # Find the minimum length of all lists in chart_data_values
+            min_len = min(len(v) for v in chart_data_values.values())
+
+            # Trim all lists to this minimum length
+            for key, value_list in chart_data_values.items():
+                chart_data_values[key] = value_list[-min_len:]
+
+            # The 'result' dictionary also needs to have its lists trimmed to the same min_len for consistency,
+            # especially for "dates" and "close" which were populated earlier based on full data.
+            result["dates"] = chart_data_values["Date"]
+            result["close"] = chart_data_values[f"Close,{symbol}"]
+            for key in result:
+                if key not in ["dates", "close"] and isinstance(result[key], list):
+                    result[key] = result[key][-min_len:]
+        else:
+            # If no MAs were calculated (e.g., empty windows list), ensure base data is still available.
+            result["dates"] = data.index.strftime("%Y-%m-%d").tolist()
+            result["close"] = data["Close"].tolist()
+            chart_data_values["Date"] = result["dates"]
+            chart_data_values[f"Close,{symbol}"] = result["close"]
+
+        chart_data = {
+            "title": f"{symbol.upper()} - Moving Averages",
+            "figsize": [20, 10],
+            "index_column": "Date",
+            "data": chart_data_values,
+            "plots": chart_data_plots,
+        }
+
+        result["chart"] = [chart_data]
 
         return result
     except Exception as e:
@@ -115,16 +217,83 @@ def get_rsi(symbol: str, period: str = "6mo", interval: str = "1d", window: int 
         window: RSI period
 
     Returns:
-        Dictionary with RSI values and dates
+        Dictionary with RSI values, dates, close prices, and chart data
     """
     try:
         data = ti.get_stock_data(symbol, period, interval)
         rsi = ti.calculate_rsi(data, window)
 
+        # Align data for plotting
+        combined_data = data[["Close"]].copy()
+        combined_data["RSI"] = rsi
+        combined_data = combined_data.dropna()
+
+        dates = combined_data.index.strftime("%Y-%m-%d").tolist()
+        rsi_values = combined_data["RSI"].tolist()
+        close_prices = combined_data["Close"].tolist()
+
+        # Generate data for horizontal RSI levels
+        # These lists will be filled with the constant value for each date
+        overbought_line = [70.0] * len(dates)
+        oversold_line = [30.0] * len(dates)
+        mid_line = [50.0] * len(dates)
+
+        chart_data = {
+            "title": f"{symbol.upper()} - Relative Strength Index (RSI)",
+            "figsize": [20, 15],  # Increased height to accommodate two subplots
+            "index_column": "Date",
+            "data": {
+                "Date": dates,
+                f"Close,{symbol}": close_prices,
+                "RSI,": rsi_values,
+                "Overbought_Line,": overbought_line,  # New data key
+                "Oversold_Line,": oversold_line,  # New data key
+                "Mid_Line,": mid_line,  # New data key
+            },
+            "plots": [
+                {
+                    "data_key": f"Close,{symbol}",
+                    "label": "Close Price",
+                    "color": "blue",
+                    "subplot": "top",  # Indicate this plot should be in the top subplot
+                },
+                {
+                    "data_key": "RSI,",
+                    "label": "RSI",
+                    "color": "orange",
+                    "subplot": "bottom",  # Indicate this plot should be in the bottom subplot
+                },
+                # Add horizontal lines for RSI levels using the new data keys
+                {
+                    "data_key": "Overbought_Line,",  # Now refers to the new list
+                    "label": "Overbought (70)",
+                    "color": "red",
+                    "linestyle": "--",
+                    "subplot": "bottom",
+                },
+                {
+                    "data_key": "Oversold_Line,",  # Now refers to the new list
+                    "label": "Oversold (30)",
+                    "color": "green",
+                    "linestyle": "--",
+                    "subplot": "bottom",
+                },
+                {
+                    "data_key": "Mid_Line,",  # Now refers to the new list
+                    "label": "Mid (50)",
+                    "color": "gray",
+                    "linestyle": ":",
+                    "subplot": "bottom",
+                },
+            ],
+            "subplots": ["top", "bottom"],  # Define the subplot names
+        }
+
         return {
-            "dates": data.index.strftime("%Y-%m-%d").tolist(),
-            "rsi": rsi.dropna().tolist(),
-            "close": data["Close"].tolist(),
+            "dates": dates,
+            "rsi": rsi_values,
+            "close": close_prices,
+            "chart": [chart_data],
         }
     except Exception as e:
         return {"error": str(e)}
@@ -151,18 +320,84 @@ def get_macd(
         signal_period: Signal line period
 
     Returns:
-        Dictionary with MACD values and dates
+        Dictionary with MACD values, dates, close prices, and chart data
     """
     try:
         data = ti.get_stock_data(symbol, period, interval)
-        macd_data = ti.calculate_macd(data, fast_period, slow_period, signal_period)
+        macd_data_series = ti.calculate_macd(
+            data, fast_period, slow_period, signal_period
+        )
+
+        # Align data for plotting
+        combined_data = data[["Close"]].copy()
+        combined_data["MACD"] = macd_data_series["macd"]
+        combined_data["Signal"] = macd_data_series["signal"]
+        combined_data["Histogram"] = macd_data_series["histogram"]
+        combined_data = combined_data.dropna()
+
+        dates = combined_data.index.strftime("%Y-%m-%d").tolist()
+        macd_values = combined_data["MACD"].tolist()
+        signal_values = combined_data["Signal"].tolist()
+        histogram_values = combined_data["Histogram"].tolist()
+        close_prices = combined_data["Close"].tolist()
+
+        chart_data = {
+            "title": f"{symbol.upper()} - Moving Average Convergence Divergence (MACD)",
+            "figsize": [20, 15],  # Increased height for two subplots
+            "index_column": "Date",
+            "data": {
+                "Date": dates,
+                f"Close,{symbol}": close_prices,
+                "MACD,": macd_values,
+                "Signal,": signal_values,
+                "Histogram,": histogram_values,
+            },
+            "plots": [
+                {
+                    "data_key": f"Close,{symbol}",
+                    "label": "Close Price",
+                    "color": "blue",
+                    "subplot": "top",
+                },
+                {
+                    "data_key": "MACD,",
+                    "label": "MACD Line",
+                    "color": "orange",
+                    "subplot": "bottom",
+                },
+                {
+                    "data_key": "Signal,",
+                    "label": "Signal Line",
+                    "color": "purple",
+                    "linestyle": "--",
+                    "subplot": "bottom",
+                },
+                {
+                    "data_key": "Histogram,",
+                    "label": "Histogram",
+                    "color": "gray",
+                    "type": "bar",  # Specify bar chart for histogram
+                    "subplot": "bottom",
+                },
+                {
+                    "data_key": None,  # Zero line for MACD
+                    "label": "Zero Line",
+                    "color": "black",
+                    "linestyle": ":",
+                    "value": 0,
+                    "subplot": "bottom",
+                },
+            ],
+            "subplots": ["top", "bottom"],
+        }
 
         return {
-            "dates": data.index.strftime("%Y-%m-%d").tolist(),
-            "macd": macd_data["macd"].dropna().tolist(),
-            "signal": macd_data["signal"].dropna().tolist(),
-            "histogram": macd_data["histogram"].dropna().tolist(),
-            "close": data["Close"].tolist(),
+            "dates": dates,
+            "macd": macd_values,
+            "signal": signal_values,
+            "histogram": histogram_values,
+            "close": close_prices,
+            "chart": [chart_data],
         }
     except Exception as e:
         return {"error": str(e)}
@@ -193,13 +428,69 @@ def get_bollinger_bands(
         data = ti.get_stock_data(symbol, period, interval)
         bb_data = ti.calculate_bollinger_bands(data, window, num_std)
 
-        return {
+        bb_data = {
             "dates": data.index.strftime("%Y-%m-%d").tolist(),
             "upper": bb_data["upper"].dropna().tolist(),
             "middle": bb_data["middle"].dropna().tolist(),
             "lower": bb_data["lower"].dropna().tolist(),
             "close": data["Close"].tolist(),
         }
+
+        min_len = min(
+            len(bb_data["dates"]),
+            len(bb_data["close"]),
+            len(bb_data["upper"]),
+            len(bb_data["middle"]),
+            len(bb_data["lower"]),
+        )
+        dates = bb_data["dates"][-min_len:]
+        close = bb_data["close"][-min_len:]
+        upper = bb_data["upper"][-min_len:]
+        middle = bb_data["middle"][-min_len:]
+        lower = bb_data["lower"][-min_len:]
+
+        chart_data = {
+            "title": f"{symbol.upper()} - Bollinger Bands",
+            "figsize": [20, 10],
+            "index_column": "Date",
+            "data": {
+                "Date": dates,
+                f"Close,{symbol}": close,
+                "Upper Band,": upper,
+                "Middle Band,": middle,
+                "Lower Band,": lower,
+            },
+            "plots": [
+                {
+                    "data_key": f"Close,{symbol}",
+                    "label": "Close Price",
+                    "color": "blue",
+                },
+                {
+                    "data_key": "Upper Band,",
+                    "label": "Upper Band",
+                    "color": "green",
+                    "linestyle": "--",
+                },
+                {
+                    "data_key": "Middle Band,",
+                    "label": "Middle Band (MA)",
+                    "color": "orange",
+                    "linestyle": "--",
+                },
+                {
+                    "data_key": "Lower Band,",
+                    "label": "Lower Band",
+                    "color": "red",
+                    "linestyle": "--",
+                },
+            ],
+        }
+
+        bb_data["chart"] = [chart_data]
+
+        return bb_data
+
     except Exception as e:
         return {"error": str(e)}
 
