@@ -21,6 +21,7 @@ class AlpacaClient:
     _trading_client = None
     _crypto_client = None
     _stock_client = None
+    _option_data_client = None
 
     def __new__(cls):
         """Ensure only one instance of AlpacaClient is created."""
@@ -36,21 +37,30 @@ class AlpacaClient:
             self._trading_client = TradingClient(api_key, secret_key, paper=True)
             self._crypto_client = CryptoHistoricalDataClient()
             self._stock_client = StockHistoricalDataClient(api_key, secret_key)
+            self._option_data_client = OptionHistoricalDataClient(api_key, secret_key)
 
         except Exception as e:
             raise Exception(f"Failed to initialize Alpaca client: {str(e)}")
 
-    def trading_client(self):
+    def trading_client(self) -> TradingClient:
         """Get the Alpaca TradingClient instance."""
+        if self._trading_client is None:
+            raise ValueError("TradingClient is not initialized.")
         return self._trading_client
 
     def crypto_client(self):
         """Get the Alpaca CryptoHistoricalDataClient instance."""
+        if self._crypto_client is None:
+            raise ValueError("CryptoHistoricalDataClient is not initialized.")
         return self._crypto_client
 
     def stock_client(self):
         """Get the Alpaca StockHistoricalDataClient instance."""
         return self._stock_client
+
+    def option_data_client(self):
+        """Get the Alpaca OptionHistoricalDataClient instance."""
+        return self._option_data_client
 
 
 if __name__ == "__main__":

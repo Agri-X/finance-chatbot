@@ -1,27 +1,39 @@
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
+from typing import List, Optional, Union
 
+from alpaca.data import ContractType
+from alpaca.trading import (
+    AssetStatus,
+    ExerciseStyle,
+    GetOptionContractsRequest,
+)
 from mcp.server.fastmcp import FastMCP
+from tabulate import tabulate
 
 # Custom modules
 from alpaca_client import AlpacaClient
 from models import (
-    AlpacaOrderRequest, AlpacaOrderType, 
-    AlpacaOrderSide, AlpacaTimeInForce, AlpacaTimeFrame
+    AlpacaOrderRequest,
+    AlpacaOrderType,
+    AlpacaOrderSide,
+    AlpacaTimeInForce,
+    AlpacaTimeFrame,
 )
 import calls
 
 # Create the MCP server with a name and dependencies
-mcp = FastMCP("Alpaca Trading", 
-              dependencies=["alpaca-py", "python-dotenv"])
+mcp = FastMCP("Alpaca Trading", dependencies=["alpaca-py", "python-dotenv"])
 
 # Initialize Alpaca clients directly
 alpaca_client = AlpacaClient()
 trading_client = alpaca_client.trading_client()
 stock_client = alpaca_client.stock_client()
 crypto_client = alpaca_client.crypto_client()
+option_data_client = alpaca_client.option_data_client()
 
 
 # ---- RESOURCES ----
+
 
 @mcp.resource("account://info")
 def get_account_info() -> str:
@@ -43,10 +55,10 @@ def get_account_info() -> str:
 def get_all_positions() -> str:
     """Get all current positions."""
     positions = calls.get_positions(trading_client)
-    
+
     if not positions:
         return "No open positions found."
-    
+
     result = "Current Positions:\n\n"
     for pos in positions:
         pl_percent = pos.unrealized_plpc * 100
@@ -59,7 +71,7 @@ def get_all_positions() -> str:
             f"  Market Value: ${pos.market_value:.2f}\n"
             f"  Unrealized P/L: {pl_sign}${pos.unrealized_pl:.2f} ({pl_sign}{pl_percent:.2f}%)\n\n"
         )
-    
+
     return result
 
 
@@ -67,13 +79,13 @@ def get_all_positions() -> str:
 def get_position_by_symbol(symbol: str) -> str:
     """Get position details for a specific symbol."""
     position = calls.get_position(trading_client, symbol)
-    
+
     if not position:
         return f"No position found for {symbol}."
-    
+
     pl_percent = position.unrealized_plpc * 100
     pl_sign = "+" if position.unrealized_pl >= 0 else ""
-    
+
     return (
         f"{position.symbol} Position ({position.side.upper()}):\n"
         f"Quantity: {position.qty}\n"
@@ -95,12 +107,12 @@ def get_recent_orders(limit: int) -> str:
             return "Limit must be between 1 and 100."
     except ValueError:
         return "Invalid limit value. Must be an integer."
-    
+
     orders = calls.get_orders(trading_client, limit=limit_val)
-    
+
     if not orders:
         return "No recent orders found."
-    
+
     result = f"Recent Orders (last {limit_val}):\n\n"
     for order in orders:
         result += (
@@ -112,24 +124,28 @@ def get_recent_orders(limit: int) -> str:
             f"Status: {order.status.value}\n"
             f"Created: {order.created_at}\n"
         )
-        
+
         if order.filled_avg_price:
             result += f"Filled Price: ${order.filled_avg_price:.2f}\n"
-        
+
         if order.limit_price:
             result += f"Limit Price: ${order.limit_price:.2f}\n"
-        
+
         if order.stop_price:
             result += f"Stop Price: ${order.stop_price:.2f}\n"
-            
+
         result += "\n"
-    
+
     return result
 
 
 @mcp.resource("market://{symbol}/quote")
 def get_market_quote(symbol: str) -> str:
     """Get current market quote for a specific symbol."""
+    if not stock_client:
+        return (
+            "Stock client is not initialized. Please check your Alpaca configuration."
+        )
     try:
         quote = calls.get_latest_quote(stock_client, symbol)
         return (
@@ -146,12 +162,18 @@ def get_market_quote(symbol: str) -> str:
 @mcp.resource("market://{symbol}/bars/{timeframe}")
 def get_historical_bars(symbol: str, timeframe: str) -> str:
     """Get historical price bars for a symbol with specified timeframe."""
+    if not stock_client:
+        return (
+            "Stock client is not initialized. Please check your Alpaca configuration."
+        )
     # Map string timeframe to Alpaca TimeFrame
     try:
         tf = AlpacaTimeFrame(timeframe).to_timeframe()
     except (ValueError, KeyError):
-        return f"Invalid timeframe: {timeframe}. Use one of: Min, Hour, Day, Week, Month"
-    
+        return (
+            f"Invalid timeframe: {timeframe}. Use one of: Min, Hour, Day, Week, Month"
+        )
+
     # Set default time period based on timeframe
     end = datetime.now()
     if timeframe == "Min":
@@ -160,19 +182,19 @@ def get_historical_bars(symbol: str, timeframe: str) -> str:
         start = end - timedelta(days=7)
     else:
         start = end - timedelta(days=30)
-    
+
     try:
         bars = calls.get_historical_bars(
             stock_client, symbol, timeframe=tf, start=start, end=end
         )
-        
+
         if not bars:
             return f"No historical bars found for {symbol} with {timeframe} timeframe."
-        
+
         result = f"Historical {timeframe} Bars for {symbol} (last {len(bars)}):\n\n"
         # Show only the most recent 10 bars if there are more
         display_bars = bars[-10:] if len(bars) > 10 else bars
-        
+
         for bar in display_bars:
             result += (
                 f"{bar.timestamp.strftime('%Y-%m-%d %H:%M')}:\n"
@@ -182,10 +204,10 @@ def get_historical_bars(symbol: str, timeframe: str) -> str:
                 f"  Close: ${bar.close:.2f}\n"
                 f"  Volume: {bar.volume:,}\n\n"
             )
-        
+
         if len(bars) > 10:
             result += f"Note: Showing only the most recent 10 of {len(bars)} bars."
-        
+
         return result
     except Exception as e:
         return f"Error fetching bars for {symbol}: {str(e)}"
@@ -195,18 +217,18 @@ def get_historical_bars(symbol: str, timeframe: str) -> str:
 def list_tradable_assets() -> str:
     """List tradable assets available on Alpaca."""
     assets = calls.get_assets(trading_client)
-    
+
     # Filter for tradable assets only
     tradable_assets = [asset for asset in assets if asset.tradable]
-    
+
     if not tradable_assets:
         return "No tradable assets found."
-    
+
     # Limit to first 50 for readability
     display_assets = tradable_assets[:50]
-    
+
     result = f"Tradable Assets (showing first {len(display_assets)} of {len(tradable_assets)}):\n\n"
-    
+
     for asset in display_assets:
         result += (
             f"{asset.symbol} - {asset.name}\n"
@@ -215,7 +237,7 @@ def list_tradable_assets() -> str:
             f"  Fractionable: {asset.fractionable}\n"
             f"  Shortable: {asset.shortable}\n\n"
         )
-    
+
     return result
 
 
@@ -224,9 +246,9 @@ def get_asset_info(symbol: str) -> str:
     """Get detailed asset information by symbol."""
     try:
         asset = calls.get_asset_by_symbol(trading_client, symbol)
-        
+
         attribute_list = ", ".join(asset.attributes) if asset.attributes else "None"
-        
+
         return (
             f"Asset Information for {asset.symbol} ({asset.name}):\n"
             f"ID: {asset.id}\n"
@@ -246,11 +268,12 @@ def get_asset_info(symbol: str) -> str:
 
 # ---- TOOLS ----
 
+
 @mcp.tool()
 def get_account_info_tool() -> str:
     """
     Get current account information.
-    
+
     Returns:
         Account summary with balance and status
     """
@@ -271,12 +294,12 @@ def get_account_info_tool() -> str:
 def place_market_order(symbol: str, quantity: float, side: str) -> str:
     """
     Place a market order to buy or sell a stock.
-    
+
     Args:
         symbol: Stock symbol (e.g., 'AAPL')
         quantity: Number of shares to buy or sell (can be fractional)
         side: Either 'buy' or 'sell'
-    
+
     Returns:
         Order confirmation details
     """
@@ -285,19 +308,19 @@ def place_market_order(symbol: str, quantity: float, side: str) -> str:
         order_side = AlpacaOrderSide(side.lower())
     except ValueError:
         return f"Invalid side: {side}. Must be 'buy' or 'sell'."
-    
+
     # Create order request
     order_request = AlpacaOrderRequest(
         symbol=symbol,
         qty=float(quantity),
         side=order_side,
         type=AlpacaOrderType.MARKET,
-        time_in_force=AlpacaTimeInForce.DAY
+        time_in_force=AlpacaTimeInForce.DAY,
     )
-    
+
     try:
         order = calls.place_order(trading_client, order_request)
-        
+
         return (
             f"Market order placed successfully!\n\n"
             f"Order ID: {order.id}\n"
@@ -314,22 +337,22 @@ def place_market_order(symbol: str, quantity: float, side: str) -> str:
 
 @mcp.tool()
 def place_limit_order(
-    symbol: str, 
-    quantity: float, 
-    side: str, 
-    limit_price: float, 
-    time_in_force: str = "day"
+    symbol: str,
+    quantity: float,
+    side: str,
+    limit_price: float,
+    time_in_force: str = "day",
 ) -> str:
     """
     Place a limit order to buy or sell a stock at a specified price.
-    
+
     Args:
         symbol: Stock symbol (e.g., 'AAPL')
         quantity: Number of shares to buy or sell (can be fractional)
         side: Either 'buy' or 'sell'
         limit_price: Maximum price for buy or minimum price for sell
         time_in_force: Order duration - 'day', 'gtc' (good till canceled), 'ioc' (immediate or cancel)
-    
+
     Returns:
         Order confirmation details
     """
@@ -338,13 +361,13 @@ def place_limit_order(
         order_side = AlpacaOrderSide(side.lower())
     except ValueError:
         return f"Invalid side: {side}. Must be 'buy' or 'sell'."
-    
+
     # Validate time in force
     try:
         order_tif = AlpacaTimeInForce(time_in_force.lower())
     except ValueError:
         return f"Invalid time in force: {time_in_force}. Valid options are: day, gtc, ioc, fok"
-    
+
     # Create order request
     order_request = AlpacaOrderRequest(
         symbol=symbol,
@@ -352,12 +375,12 @@ def place_limit_order(
         side=order_side,
         type=AlpacaOrderType.LIMIT,
         time_in_force=order_tif,
-        limit_price=float(limit_price)
+        limit_price=float(limit_price),
     )
-    
+
     try:
         order = calls.place_order(trading_client, order_request)
-        
+
         return (
             f"Limit order placed successfully!\n\n"
             f"Order ID: {order.id}\n"
@@ -376,22 +399,22 @@ def place_limit_order(
 
 @mcp.tool()
 def place_stop_order(
-    symbol: str, 
-    quantity: float, 
-    side: str, 
+    symbol: str,
+    quantity: float,
+    side: str,
     stop_price: float,
-    time_in_force: str = "day"
+    time_in_force: str = "day",
 ) -> str:
     """
     Place a stop order to buy or sell a stock when it reaches a specified price.
-    
+
     Args:
         symbol: Stock symbol (e.g., 'AAPL')
         quantity: Number of shares to buy or sell (can be fractional)
         side: Either 'buy' or 'sell'
         stop_price: Price that triggers the order
         time_in_force: Order duration - 'day', 'gtc' (good till canceled)
-    
+
     Returns:
         Order confirmation details
     """
@@ -400,13 +423,13 @@ def place_stop_order(
         order_side = AlpacaOrderSide(side.lower())
     except ValueError:
         return f"Invalid side: {side}. Must be 'buy' or 'sell'."
-    
+
     # Validate time in force
     try:
         order_tif = AlpacaTimeInForce(time_in_force.lower())
     except ValueError:
         return f"Invalid time in force: {time_in_force}. Valid options are: day, gtc"
-    
+
     # Create order request
     order_request = AlpacaOrderRequest(
         symbol=symbol,
@@ -414,12 +437,12 @@ def place_stop_order(
         side=order_side,
         type=AlpacaOrderType.STOP,
         time_in_force=order_tif,
-        stop_price=float(stop_price)
+        stop_price=float(stop_price),
     )
-    
+
     try:
         order = calls.place_order(trading_client, order_request)
-        
+
         return (
             f"Stop order placed successfully!\n\n"
             f"Order ID: {order.id}\n"
@@ -438,16 +461,16 @@ def place_stop_order(
 
 @mcp.tool()
 def place_stop_limit_order(
-    symbol: str, 
-    quantity: float, 
-    side: str, 
+    symbol: str,
+    quantity: float,
+    side: str,
     stop_price: float,
     limit_price: float,
-    time_in_force: str = "day"
+    time_in_force: str = "day",
 ) -> str:
     """
     Place a stop-limit order combining stop and limit order features.
-    
+
     Args:
         symbol: Stock symbol (e.g., 'AAPL')
         quantity: Number of shares to buy or sell (can be fractional)
@@ -455,7 +478,7 @@ def place_stop_limit_order(
         stop_price: Price that triggers the order
         limit_price: Maximum/minimum price for the triggered order
         time_in_force: Order duration - 'day', 'gtc' (good till canceled)
-    
+
     Returns:
         Order confirmation details
     """
@@ -464,13 +487,13 @@ def place_stop_limit_order(
         order_side = AlpacaOrderSide(side.lower())
     except ValueError:
         return f"Invalid side: {side}. Must be 'buy' or 'sell'."
-    
+
     # Validate time in force
     try:
         order_tif = AlpacaTimeInForce(time_in_force.lower())
     except ValueError:
         return f"Invalid time in force: {time_in_force}. Valid options are: day, gtc"
-    
+
     # Create order request
     order_request = AlpacaOrderRequest(
         symbol=symbol,
@@ -479,12 +502,12 @@ def place_stop_limit_order(
         type=AlpacaOrderType.STOP_LIMIT,
         time_in_force=order_tif,
         stop_price=float(stop_price),
-        limit_price=float(limit_price)
+        limit_price=float(limit_price),
     )
-    
+
     try:
         order = calls.place_order(trading_client, order_request)
-        
+
         return (
             f"Stop-limit order placed successfully!\n\n"
             f"Order ID: {order.id}\n"
@@ -506,10 +529,10 @@ def place_stop_limit_order(
 def cancel_order(order_id: str) -> str:
     """
     Cancel an open order by its ID.
-    
+
     Args:
         order_id: ID of the order to cancel
-    
+
     Returns:
         Confirmation of cancellation
     """
@@ -524,10 +547,10 @@ def cancel_order(order_id: str) -> str:
 def close_position(symbol: str) -> str:
     """
     Close an open position for a specific symbol.
-    
+
     Args:
         symbol: Stock symbol to close position for
-    
+
     Returns:
         Confirmation of position closure
     """
@@ -536,7 +559,7 @@ def close_position(symbol: str) -> str:
         position = calls.get_position(trading_client, symbol)
         if not position:
             return f"No open position found for {symbol}."
-        
+
         # Close the position
         trading_client.close_position(symbol)
         return f"Position for {symbol} has been successfully closed."
@@ -548,17 +571,17 @@ def close_position(symbol: str) -> str:
 def get_portfolio_summary() -> str:
     """
     Get a comprehensive summary of the portfolio including account details and open positions.
-    
+
     Returns:
         Portfolio summary with account and positions information
     """
     try:
         # Get account info
         account = calls.get_account(trading_client)
-        
+
         # Get all positions
         positions = calls.get_positions(trading_client)
-        
+
         # Generate summary
         summary = (
             f"Portfolio Summary\n"
@@ -573,19 +596,23 @@ def get_portfolio_summary() -> str:
             f"Daytrade Count: {account.daytrade_count}\n"
             f"Pattern Day Trader: {account.pattern_day_trader}\n\n"
         )
-        
+
         if positions:
             summary += f"Open Positions ({len(positions)}):\n-------------------\n"
-            
+
             # Calculate total P/L and allocation
             total_pl = sum(pos.unrealized_pl for pos in positions)
             total_value = account.portfolio_value - account.cash
-            
+
             for pos in positions:
                 pl_percent = pos.unrealized_plpc * 100
                 pl_sign = "+" if pos.unrealized_pl >= 0 else ""
-                allocation = (pos.market_value / account.portfolio_value) * 100 if account.portfolio_value > 0 else 0
-                
+                allocation = (
+                    (pos.market_value / account.portfolio_value) * 100
+                    if account.portfolio_value > 0
+                    else 0
+                )
+
                 summary += (
                     f"{pos.symbol} ({pos.side.value.upper()}):\n"
                     f"  Quantity: {pos.qty}\n"
@@ -594,11 +621,13 @@ def get_portfolio_summary() -> str:
                     f"  Value: ${pos.market_value:.2f} ({allocation:.2f}% of portfolio)\n"
                     f"  P/L: {pl_sign}${pos.unrealized_pl:.2f} ({pl_sign}{pl_percent:.2f}%)\n\n"
                 )
-            
+
             # Add overall P/L summary
-            overall_pl_percent = (total_pl / total_value) * 100 if total_value > 0 else 0
+            overall_pl_percent = (
+                (total_pl / total_value) * 100 if total_value > 0 else 0
+            )
             pl_sign = "+" if total_pl >= 0 else ""
-            
+
             summary += (
                 f"Overall Position Summary:\n"
                 f"------------------------\n"
@@ -608,13 +637,77 @@ def get_portfolio_summary() -> str:
             )
         else:
             summary += "No open positions."
-        
+
         return summary
     except Exception as e:
         return f"Error generating portfolio summary: {str(e)}"
 
 
+@mcp.tool()
+def get_options(
+    underlying_symbols: Optional[List[str]] = None,
+    status: Optional[AssetStatus] = None,
+    expiration_date: Optional[Union[date, str]] = None,
+    expiration_date_gte: Optional[Union[date, str]] = None,
+    expiration_date_lte: Optional[Union[date, str]] = None,
+    root_symbol: Optional[str] = None,
+    type: Optional[ContractType] = None,
+    style: Optional[ExerciseStyle] = None,
+    strike_price_gte: Optional[str] = None,
+    strike_price_lte: Optional[str] = None,
+    limit: Optional[int] = None,
+):
+    """
+    Used to fetch option contracts for a given underlying symbol.
+
+    Attributes:
+        underlying_symbols (Optional[List[str]]): The underlying symbols for the option contracts to be returned. (e.g. ["AAPL", "SPY"])
+        status (Optional[AssetStatus]): The status of the asset.
+        expiration_date (Optional[Union[date, str]]): The expiration date of the option contract. (YYYY-MM-DD)
+        expiration_date_gte (Optional[Union[date, str]]): The expiration date of the option contract greater than or equal to. (YYYY-MM-DD)
+        expiration_date_lte (Optional[Union[date, str]]): The expiration date of the option contract less than or equal to. (YYYY-MM-DD)
+        root_symbol (Optional[str]): The option root symbol.
+        type (Optional[ContractType]): The option contract type.
+        style (Optional[ExerciseStyle]): The option contract style.
+        strike_price_gte (Optional[str]): The option contract strike price greater than or equal to.
+        strike_price_lte (Optional[str]): The option contract strike price less than or equal to.
+        limit (Optional[int]): The number of contracts to limit per page (default=100, max=10000).
+    """
+
+    if not trading_client or not option_data_client or not stock_client:
+        return "Alpaca trading client is not initialized."
+
+    request_args = {
+        "underlying_symbols": underlying_symbols,
+        "status": status,
+        "expiration_date": expiration_date,
+        "expiration_date_gte": expiration_date_gte,
+        "expiration_date_lte": expiration_date_lte,
+        "root_symbol": root_symbol,
+        "type": type,
+        "style": style,
+        "strike_price_gte": strike_price_gte,
+        "strike_price_lte": strike_price_lte,
+        "limit": limit,
+    }
+
+    filtered_request_args = {k: v for k, v in request_args.items() if v is not None}
+
+    request = GetOptionContractsRequest(**filtered_request_args)
+
+    response = calls.get_option_contracts(client=trading_client, request=request)
+
+    res = tabulate(
+        response,
+        headers="keys",
+        tablefmt="plain",
+    )
+
+    return res
+
+
 # ---- PROMPTS ----
+
 
 @mcp.prompt()
 def market_order_prompt(symbol: str, quantity: float, side: str) -> str:
@@ -662,4 +755,4 @@ Please use the appropriate resources to gather this information.
 
 # Run the server
 if __name__ == "__main__":
-    mcp.run(transport='stdio')
+    mcp.run(transport="stdio")

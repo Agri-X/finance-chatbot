@@ -286,7 +286,7 @@ def comprehensive_ticker_report(ticker: str) -> str:
         return f"Failed to retrieve data for {ticker}"
 
 
-@mcp.tool()
+# @mcp.tool()
 def get_options(
     ticker_symbol: str,
     num_options: int = 10,

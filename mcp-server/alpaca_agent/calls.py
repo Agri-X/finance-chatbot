@@ -1,9 +1,16 @@
-from typing import List, Optional, Union
+from typing import Optional, Union
 from datetime import datetime, timedelta
+from alpaca.trading import OptionContractsResponse
+from alpaca.trading.requests import GetOptionContractsRequest
 
-# Alpaca imports
 from alpaca.trading.client import TradingClient
-from alpaca.data import StockHistoricalDataClient, CryptoHistoricalDataClient
+from alpaca.data import (
+    CryptoBarsRequest,
+    CryptoLatestQuoteRequest,
+    StockHistoricalDataClient,
+    CryptoHistoricalDataClient,
+    TimeFrameUnit,
+)
 from alpaca.trading.requests import (
     GetOrdersRequest,
     MarketOrderRequest,
@@ -12,13 +19,12 @@ from alpaca.trading.requests import (
     StopLimitOrderRequest,
 )
 from alpaca.data.requests import (
-    StockQuotesRequest,
     StockBarsRequest,
     StockLatestQuoteRequest,
 )
 from alpaca.data.timeframe import TimeFrame
+import pandas as pd
 
-# Local imports
 from models import (
     AlpacaOrder,
     AlpacaOrderRequest,
@@ -117,9 +123,15 @@ def get_orders(
     :param until: Retrieve orders until this timestamp
     :return: List of AlpacaOrder models
     """
-    order_request = GetOrdersRequest(
-        status=status.value, limit=limit, after=after, until=until
-    )
+
+    input = {
+        "status": status.value if status else None,
+        "limit": limit,
+        "after": after,
+        "until": until,
+    }
+
+    order_request = GetOrdersRequest(**input)
     orders = client.get_orders(order_request)
     return [AlpacaOrder(**order.__dict__) for order in orders]
 
@@ -187,15 +199,20 @@ def get_latest_quote(
     :param symbol: Stock symbol
     :return: AlpacaQuote model
     """
-    request = StockLatestQuoteRequest(symbol_or_symbols=symbol)
-    quotes = historical_client.get_stock_latest_quote(request)
+    if isinstance(historical_client, CryptoHistoricalDataClient):
+        request = CryptoLatestQuoteRequest(symbol_or_symbols=symbol)
+        quotes = historical_client.get_crypto_latest_quote(request)
+    else:
+        request = StockLatestQuoteRequest(symbol_or_symbols=symbol)
+        quotes = historical_client.get_stock_latest_quote(request)
+
     return AlpacaQuote(**quotes[symbol].__dict__)
 
 
 def get_historical_bars(
     historical_client: Union[StockHistoricalDataClient, CryptoHistoricalDataClient],
     symbol: str,
-    timeframe: TimeFrame = TimeFrame.Day,
+    timeframe: TimeFrame = TimeFrame(amount=1, unit=TimeFrameUnit.Day),
     start: Optional[datetime] = None,
     end: Optional[datetime] = None,
 ):
@@ -214,12 +231,77 @@ def get_historical_bars(
     if not end:
         end = datetime.now()
 
-    request = StockBarsRequest(
-        symbol_or_symbols=symbol, timeframe=timeframe, start=start, end=end
-    )
-    bars = historical_client.get_stock_bars(request)
+    if isinstance(historical_client, CryptoHistoricalDataClient):
+        request = CryptoBarsRequest(
+            symbol_or_symbols=symbol, timeframe=timeframe, start=start, end=end
+        )
+        bars = historical_client.get_crypto_bars(request)
+    else:
+        request = StockBarsRequest(
+            symbol_or_symbols=symbol, timeframe=timeframe, start=start, end=end
+        )
+        bars = historical_client.get_stock_bars(request)
 
     return [AlpacaBar(**bar.__dict__) for bar in bars[symbol]]
+
+
+def get_option_contracts(client: TradingClient, request: GetOptionContractsRequest):
+    """
+    Retrieve list of option contracts with optional filtering
+
+    :param client: Alpaca trading client
+    :param request: GetOptionContractsRequest with filtering options
+    :return: List of AlpacaAsset models representing option contracts
+    """
+
+    option_contracts = []
+    next_page_token = None
+
+    while True:
+        if next_page_token:
+            request.page_token = next_page_token
+
+        response = client.get_option_contracts(request)
+
+        if (
+            not isinstance(response, OptionContractsResponse)
+            or not response
+            or not response.option_contracts
+        ):
+            continue
+
+        option_contracts.extend(response.option_contracts)
+
+        next_page_token = response.next_page_token
+
+        if not next_page_token:
+            break
+    df = pd.DataFrame.from_dict(
+        [
+            {
+                "id": x.id,
+                "symbol": x.symbol,
+                "name": x.name,
+                "status": x.status.value,
+                # "tradable": x.tradable,
+                "expiration_date": x.expiration_date,
+                "root_symbol": x.root_symbol,
+                "underlying_symbol": x.underlying_symbol,
+                # "underlying_asset_id": x.underlying_asset_id,
+                "type": x.type.value,
+                # "style": x.style.value,
+                "strike_price": x.strike_price,
+                "size": x.size,
+                "open_interest": x.open_interest,
+                "open_interest_date": x.open_interest_date,
+                "close_price": x.close_price,
+                "close_price_date": x.close_price_date,
+            }
+            for x in option_contracts
+        ]  # type: ignore[return-value]
+    )
+
+    return df.to_dict(orient="records")
 
 
 if __name__ == "__main__":
