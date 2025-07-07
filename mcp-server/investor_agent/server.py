@@ -966,9 +966,14 @@ async def get_historical_fng_tool(days: int) -> str:
         if not history:
             return "No historical data available."
 
+        logger.info(f"Retrieved {len(history)} historical entries")
+
         # Limit to the requested number of days
         # Note: The API may not provide data for every day
-        limited_history = history[: min(days, len(history))]
+        # limited_history = history[: min(days, len(history))]
+        limited_history = sorted(history, key=lambda d: d["timestamp"], reverse=True)[
+            : min(days, len(history))
+        ]
 
         # Format historical data
         lines = [
