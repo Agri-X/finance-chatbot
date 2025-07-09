@@ -263,8 +263,12 @@ def get_option_contracts(
 
     contracts = []
     next_page_token = None
+    loop_count = 0
 
     while True:
+        if loop_count >= 3:
+            break
+
         if next_page_token:
             request.page_token = next_page_token
 
@@ -283,6 +287,8 @@ def get_option_contracts(
 
         if not next_page_token:
             break
+
+        loop_count += 1
 
     symbols = [contract.symbol for contract in contracts]
     print(f"Found {len(symbols)} contracts. Fetching snapshots...")
