@@ -7,6 +7,8 @@ from alpaca.trading.client import TradingClient
 from alpaca.data import (
     CryptoBarsRequest,
     CryptoLatestQuoteRequest,
+    OptionHistoricalDataClient,
+    OptionSnapshotRequest,
     StockHistoricalDataClient,
     CryptoHistoricalDataClient,
     TimeFrameUnit,
@@ -245,7 +247,12 @@ def get_historical_bars(
     return [AlpacaBar(**bar.__dict__) for bar in bars[symbol]]
 
 
-def get_option_contracts(client: TradingClient, request: GetOptionContractsRequest):
+def get_option_contracts(
+    trading_client: TradingClient,
+    option_data_client: OptionHistoricalDataClient,
+    market_data_client: StockHistoricalDataClient,
+    request: GetOptionContractsRequest,
+):
     """
     Retrieve list of option contracts with optional filtering
 
@@ -254,14 +261,14 @@ def get_option_contracts(client: TradingClient, request: GetOptionContractsReque
     :return: List of AlpacaAsset models representing option contracts
     """
 
-    option_contracts = []
+    contracts = []
     next_page_token = None
 
     while True:
         if next_page_token:
             request.page_token = next_page_token
 
-        response = client.get_option_contracts(request)
+        response = trading_client.get_option_contracts(request)
 
         if (
             not isinstance(response, OptionContractsResponse)
@@ -270,38 +277,89 @@ def get_option_contracts(client: TradingClient, request: GetOptionContractsReque
         ):
             continue
 
-        option_contracts.extend(response.option_contracts)
+        contracts.extend(response.option_contracts)
 
         next_page_token = response.next_page_token
 
         if not next_page_token:
             break
-    df = pd.DataFrame.from_dict(
-        [
-            {
-                "id": x.id,
-                "symbol": x.symbol,
-                "name": x.name,
-                "status": x.status.value,
-                # "tradable": x.tradable,
-                "expiration_date": x.expiration_date,
-                "root_symbol": x.root_symbol,
-                "underlying_symbol": x.underlying_symbol,
-                # "underlying_asset_id": x.underlying_asset_id,
-                "type": x.type.value,
-                # "style": x.style.value,
-                "strike_price": x.strike_price,
-                "size": x.size,
-                "open_interest": x.open_interest,
-                "open_interest_date": x.open_interest_date,
-                "close_price": x.close_price,
-                "close_price_date": x.close_price_date,
-            }
-            for x in option_contracts
-        ]  # type: ignore[return-value]
-    )
 
-    return df.to_dict(orient="records")
+    symbols = [contract.symbol for contract in contracts]
+    print(f"Found {len(symbols)} contracts. Fetching snapshots...")
+
+    # 2. Get snapshots for the contracts to fetch real-time data
+    try:
+        snapshots = option_data_client.get_option_snapshot(
+            OptionSnapshotRequest(symbol_or_symbols=request.underlying_symbols)  # type: ignore
+        )
+    except Exception as e:
+        print(f"Error fetching option snapshots: {e}")
+        return pd.DataFrame().to_dict(orient="records")
+
+    if not snapshots:
+        print("Could not fetch snapshots for the found contracts.")
+        return pd.DataFrame().to_dict(orient="records")
+
+    # 3. Get Historical Volatility for the underlying stock
+    try:
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=30)
+        bars_request = StockBarsRequest(
+            symbol_or_symbols=request.underlying_symbols[0],  # type: ignore
+            timeframe=TimeFrame.Day,  # type: ignore
+            start=start_date,
+            end=end_date,
+        )
+        bars = market_data_client.get_stock_bars(bars_request)
+        daily_returns = bars[request.underlying_symbols[0]].df["close"].pct_change().dropna()  # type: ignore
+        historical_volatility = daily_returns.std() * (252**0.5)  # Annualized
+    except Exception as e:
+        print(f"Could not calculate Historical Volatility: {e}")
+        historical_volatility = None
+
+    # 4. Combine the data
+    options_data = []
+    for symbol, snapshot in snapshots.items():
+        contract_details = next((c for c in contracts if c.symbol == symbol), None)
+        if not contract_details or not snapshot.latest_quote or not snapshot.greeks:
+            continue
+
+        last_price = (
+            snapshot.latest_quote.ask_price
+            if request.type.value == "call"  # type: ignore
+            else snapshot.latest_quote.bid_price
+        )
+        # change = last_price - snapshot.daily_bar.close
+        # percent_change = (
+        #     (change / snapshot.daily_bar.close) * 100
+        #     if snapshot.daily_bar.close != 0
+        #     else 0
+        # )
+
+        options_data.append(
+            {
+                "Underlying": contract_details.underlying_symbol,
+                "Expiration": contract_details.expiration_date.strftime("%Y-%m-%d"),
+                "Strike": contract_details.strike_price,
+                "Type": contract_details.type.value,
+                "Last Price": last_price,
+                # "Change": change,
+                # "% Change": f"{percent_change:.2f}%",
+                "Bid": snapshot.latest_quote.bid_price,
+                "Ask": snapshot.latest_quote.ask_price,
+                # "Volume": snapshot.daily_bar.volume,
+                "Open Interest": contract_details.open_interest or 0,
+                "Delta": snapshot.greeks.delta,
+                "Gamma": snapshot.greeks.gamma,
+                "Rho": snapshot.greeks.rho,
+                "Theta": snapshot.greeks.theta,
+                "Vega": snapshot.greeks.vega,
+                "IV": snapshot.implied_volatility,
+                "HV (30D)": historical_volatility,
+            }
+        )
+
+    return pd.DataFrame(options_data).to_dict(orient="records")
 
 
 if __name__ == "__main__":

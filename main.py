@@ -83,6 +83,7 @@ async def initialize_tools():
 
 
 tools = asyncio.run(initialize_tools())
+
 # Models
 main_model = ChatGoogleGenerativeAI(
     model=os.getenv("MODEL_BASE", "gemini-2.0-pro"),
