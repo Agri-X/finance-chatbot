@@ -1,8 +1,12 @@
+from datetime import datetime, timedelta
+import logging
 from venv import logger
 import pandas as pd
 import yfinance as yf
 from mcp.server.fastmcp import FastMCP
 from typing import List
+import pytz
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from utils.technical_indicator import TechnicalIndicators
 
@@ -1067,6 +1071,183 @@ async def generate_chart(ticker, period="5mo", interval="1d"):
             },
         ]
     }
+
+
+def _get_ny_timezone_now():
+    return datetime.now(pytz.timezone("America/New_York"))
+
+
+def _fetch_ticker_info(ticker):
+    try:
+        stock = yf.Ticker(ticker)
+        if not stock.info:
+            return None, None
+        earnings_dates = stock.earnings_dates
+        if earnings_dates.empty:
+            return stock, pd.DataFrame()
+        if earnings_dates.index.tz is None:
+            earnings_dates.index = earnings_dates.index.tz_localize("America/New_York")
+        else:
+            earnings_dates.index = earnings_dates.index.tz_convert("America/New_York")
+        return stock, earnings_dates
+    except Exception as e:
+        logger.error(f"Error fetching {ticker}: {e}")
+        return None, None
+
+
+def get_next_earnings(ticker):
+    stock, earnings = _fetch_ticker_info(ticker)
+    if stock is None or earnings.empty:
+        return None
+    now = _get_ny_timezone_now()
+    future = earnings[earnings.index > now].sort_index()
+    if future.empty:
+        return None
+    next_earn = future.iloc[0]
+    return {
+        "Ticker": ticker.upper(),
+        "Company Name": stock.info.get("longName", "N/A"),
+        "Next Earnings Date": next_earn.name.strftime("%Y-%m-%d"),
+        "EPS Estimate": next_earn.get("EPS Estimate", "N/A"),
+        "Reported EPS": next_earn.get("Reported EPS", "N/A"),
+    }
+
+
+def get_earnings_in_range(tickers, start_date, end_date, max_workers=20):
+    nytz = pytz.timezone("America/New_York")
+    try:
+        start = nytz.localize(datetime.strptime(start_date, "%Y-%m-%d"))
+        end = nytz.localize(
+            datetime.strptime(end_date, "%Y-%m-%d")
+            + timedelta(days=1)
+            - timedelta(seconds=1)
+        )
+    except ValueError:
+        return pd.DataFrame()
+
+    if (end - start).days > 31:
+        end = start + timedelta(days=31)
+
+    results = []
+
+    def process_ticker(ticker):
+        stock, earnings = _fetch_ticker_info(ticker)
+        if stock is None or earnings.empty:
+            return []
+
+        mask = (earnings.index >= start) & (earnings.index <= end)
+        filtered = earnings.loc[mask]
+
+        return [
+            {
+                "Ticker": ticker.upper(),
+                "Company Name": stock.info.get("longName", "N/A"),
+                "Earnings Date": idx.strftime("%Y-%m-%d"),
+                "EPS Estimate": row.get("EPS Estimate", "N/A"),
+                "Reported EPS": row.get("Reported EPS", "N/A"),
+            }
+            for idx, row in filtered.iterrows()
+        ]
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_ticker = {
+            executor.submit(process_ticker, ticker): ticker for ticker in tickers
+        }
+        for future in as_completed(future_to_ticker):
+            try:
+                results.extend(future.result())
+            except Exception as e:
+                logger.error(f"Threaded error: {e}")
+
+    return (
+        pd.DataFrame(results)
+        .sort_values(by=["Earnings Date", "Ticker"])
+        .reset_index(drop=True)
+    )
+
+@mcp.tool()
+def get_sp500_tickers():
+    try:
+        url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
+        table = pd.read_html(url)[0]
+        return [x.replace(".", "-").strip() for x in table["Symbol"].tolist()]
+    except Exception as e:
+        logger.error(f"Failed to fetch S&P500 tickers: {e}")
+        return []
+
+
+@mcp.tool()
+def get_earnings_calendar(start_date=None, end_date=None, ticker=None):
+    """
+    Retrieve the earnings calendar for a specific ticker or a range of dates.
+
+    Args:
+        start_date (str, optional): The start date in YYYY-MM-DD format. Defaults to today's date.
+        end_date (str, optional): The end date in YYYY-MM-DD format. Defaults to 30 days from the start date.
+        ticker (str or list, optional): A single ticker symbol or a list of ticker symbols. If not provided, fetches earnings for S&P 500 companies.
+
+    Returns:
+        str: A markdown-formatted table of earnings data or an error message.
+
+    Examples:
+        - Fetch earnings for a specific ticker:
+            get_earnings_calendar(ticker="AAPL")
+
+        - Fetch earnings for a range of dates:
+            get_earnings_calendar(start_date="2023-01-01", end_date="2023-01-31")
+
+        - Fetch earnings for multiple tickers:
+            get_earnings_calendar(ticker=["AAPL", "MSFT"])
+    """
+    now = _get_ny_timezone_now()
+
+    if not start_date:
+        start_dt = now.date()
+    else:
+        try:
+            start_dt = datetime.strptime(start_date, "%Y-%m-%d").date()
+        except ValueError:
+            return "```\nInvalid start_date format. Date should be in YYYY-MM-DD format.\n```"
+
+    if not end_date:
+        end_dt = start_dt + timedelta(days=30)
+    else:
+        try:
+            end_dt = datetime.strptime(end_date, "%Y-%m-%d").date()
+        except ValueError:
+            return "```\nInvalid end_date format. Date should be in YYYY-MM-DD format.\n```"
+
+    if end_dt < start_dt:
+        return "```\nError: end_date cannot be before start_date.\n```"
+
+    if ticker:
+        if isinstance(ticker, str):
+            tickers_list = [ticker]
+        elif isinstance(ticker, list):
+            tickers_list = ticker
+        else:
+            return "```\nError: 'ticker' must be a string or a list of strings.\n```"
+
+        all_earnings = []
+        for t in tickers_list:
+            result = get_next_earnings(t)
+            if result:
+                all_earnings.append(result)
+
+        if all_earnings:
+            df = pd.DataFrame(all_earnings)
+            return df.to_markdown(index=False)
+        else:
+            return f"```\nNo earnings found for the provided ticker(s): {', '.join(tickers_list)}.\n```"
+    else:
+        tickers_to_query = list(set(get_sp500_tickers()))
+        df = get_earnings_in_range(
+            tickers_to_query, str(start_dt), str(end_dt), max_workers=20
+        )
+        if not df.empty:
+            df_sorted = df.sort_values(by="Earnings Date").reset_index(drop=True)
+            return df_sorted.to_markdown(index=False)
+        return f"```\nNo earnings found for top 10 S&P 500 companies from {start_dt} to {end_dt}.\n```"
 
 
 # Run the server
