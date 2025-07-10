@@ -1,3 +1,4 @@
+import logging
 from typing import Optional, Union
 from datetime import datetime, timedelta
 from alpaca.trading import OptionContractsResponse
@@ -263,15 +264,11 @@ def get_option_contracts(
 
     contracts = []
     next_page_token = None
-    loop_count = 0
-
+    logging.info(f"Fetching option contracts for {request.root_symbol}...")
     while True:
-        if loop_count >= 3:
-            break
-
-        if next_page_token:
-            request.page_token = next_page_token
-
+        request = GetOptionContractsRequest(
+            root_symbol=request.root_symbol, page_token=next_page_token
+        )
         response = trading_client.get_option_contracts(request)
 
         if (
@@ -279,16 +276,15 @@ def get_option_contracts(
             or not response
             or not response.option_contracts
         ):
-            continue
+            # If no more contracts or an invalid response, break the loop
+            break
 
         contracts.extend(response.option_contracts)
-
         next_page_token = response.next_page_token
 
         if not next_page_token:
+            # If there's no next page token, we've fetched all pages
             break
-
-        loop_count += 1
 
     symbols = [contract.symbol for contract in contracts]
     print(f"Found {len(symbols)} contracts. Fetching snapshots...")
