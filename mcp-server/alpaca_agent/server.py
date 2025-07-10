@@ -645,13 +645,11 @@ def get_portfolio_summary() -> str:
 
 @mcp.tool()
 def get_options(
-    underlying_symbols: str,
+    symbol: str,
     expiration_date: Optional[Union[date, str]] = None,
     expiration_date_gte: Optional[Union[date, str]] = None,
     expiration_date_lte: Optional[Union[date, str]] = None,
-    root_symbol: Optional[str] = None,
     type: Optional[ContractType] = None,
-    style: Optional[ExerciseStyle] = None,
     strike_price_gte: Optional[str] = None,
     strike_price_lte: Optional[str] = None,
     limit: Optional[int] = None,
@@ -660,13 +658,11 @@ def get_options(
     Used to fetch option contracts for a given underlying symbol.
 
     Attributes:
-        underlying_symbols (str): The underlying symbols for the option contracts to be returned. (e.g. "AAPL" or "SPY")
+        symbol (str): The option root symbol (e.g. "AAPL" or "SPY").
         expiration_date (Optional[Union[date, str]]): The expiration date of the option contract. (YYYY-MM-DD)
         expiration_date_gte (Optional[Union[date, str]]): The expiration date of the option contract greater than or equal to. (YYYY-MM-DD)
         expiration_date_lte (Optional[Union[date, str]]): The expiration date of the option contract less than or equal to. (YYYY-MM-DD)
-        root_symbol (Optional[str]): The option root symbol.
-        type (Optional["call" | "put"]): The option contract type.
-        style (Optional[ExerciseStyle]): The option contract style.
+        type (Optional["call" or "put"]): The option contract type.
         strike_price_gte (Optional[str]): The option contract strike price greater than or equal to.
         strike_price_lte (Optional[str]): The option contract strike price less than or equal to.
         limit (Optional[int]): The number of contracts to limit per page (default=100, max=10000).
@@ -675,38 +671,37 @@ def get_options(
     if not trading_client or not option_data_client or not stock_client:
         return "Alpaca trading client is not initialized."
 
-    request_args = {
-        "underlying_symbols": [underlying_symbols],
-        "status": AssetStatus.ACTIVE,
-        "expiration_date": expiration_date,
-        "expiration_date_gte": expiration_date_gte,
-        "expiration_date_lte": expiration_date_lte,
-        "root_symbol": root_symbol,
-        "type": type,
-        "style": style,
-        "strike_price_gte": strike_price_gte,
-        "strike_price_lte": strike_price_lte,
-        "limit": limit,
-    }
+    request = GetOptionContractsRequest(
+        underlying_symbols=[symbol],
+        expiration_date=expiration_date,
+        expiration_date_gte=expiration_date_gte,
+        expiration_date_lte=expiration_date_lte,
+        type=type,
+        strike_price_gte=strike_price_gte,
+        strike_price_lte=strike_price_lte,
+        status=AssetStatus.ACTIVE,
+        limit=10000,
+    )
 
-    filtered_request_args = {k: v for k, v in request_args.items() if v is not None}
+    # filtered_request_args = {k: v for k, v in request_args.items() if v is not None}
 
-    request = GetOptionContractsRequest(**filtered_request_args)
+    # request = GetOptionContractsRequest(**filtered_request_args)
 
     response = calls.get_option_contracts(
         trading_client=trading_client,
         request=request,
         option_data_client=option_data_client,
         market_data_client=stock_client,
+        limit=limit,
     )
 
     res = tabulate(
         response,
         headers="keys",
-        tablefmt="plain",
+        tablefmt="github",
     )
 
-    return f"option contracts for {underlying_symbols} \n --- \n" + res
+    return f"option contracts for {symbol} \n --- \n" + res
 
 
 # ---- PROMPTS ----

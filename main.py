@@ -92,12 +92,8 @@ main_model = ChatGoogleGenerativeAI(
     timeout=None,
     max_retries=2,
 )
-formatter_model = ChatGoogleGenerativeAI(
-    model=os.getenv("MODEL_FINAL", "gemini-2.0-pro")
-)
 
 main_model = main_model.bind_tools(tools)
-formatter_model = formatter_model.with_config(tags=["final_node"])
 tool_node = ToolNode(tools=tools)
 
 
@@ -123,42 +119,6 @@ def analyze_response_need(state: MessagesState):
     new_state = state.copy()
     new_state["needs_formatting"] = needs_formatting
     return new_state
-
-
-def format_final_response(state: MessagesState):
-    """Format the response using the formatter model"""
-    messages = state["messages"]
-    last_ai_message = messages[-1]
-
-    format_prompt = f"""
-Rewrite this response to be more concise, clear, and user-friendly:
-
-Original: {last_ai_message.content}
-
-Make it:
-- Clear and well-structured
-- Easy to read
-- Comprehensive but concise
-
-Rules: 
-- If the data is a table then show the table in markdown format.
-- If the data is a list, show it as a bullet point list.
-- If the data is a paragraph, keep it concise and to the point.
-- If the data is a code block, keep it as is.
-    """
-
-    formatted_response = formatter_model.invoke(
-        [
-            SystemMessage(
-                "You are an expert at formatting AI responses for users. Make responses clear and professional."
-            ),
-            HumanMessage(format_prompt),
-        ]
-    )
-
-    # Replace the last message with formatted version
-    formatted_response.id = last_ai_message.id
-    return {"messages": messages[:-1] + [formatted_response]}
 
 
 def get_trailing_tool_messages_with_indices(arr):
@@ -215,14 +175,14 @@ async def render_chart(state: MessagesState) -> MessagesState:
 
 
 # Conditional Edge Functions
-def should_use_tools(state: MessagesState) -> Literal["tools", "analyze"]:
+def should_use_tools(state: MessagesState) -> Literal["tools", "END"]:
     """Route to tools if model made tool calls, otherwise analyze response"""
     messages = state["messages"]
     last_message = messages[-1]
 
     if hasattr(last_message, "tool_calls") and last_message.tool_calls:
         return "tools"
-    return "analyze"
+    return "END"
 
 
 def should_format_response(state: MessagesState) -> Literal["format", "END"]:
@@ -286,46 +246,22 @@ builder = StateGraph(MessagesState)
 # Add nodes
 builder.add_node("agent", call_main_model)
 builder.add_node("tools", tool_node)
-builder.add_node("analyze", analyze_response_need)
 builder.add_node("render_chart", render_chart)
-builder.add_node("format", format_final_response)
 builder.add_node("should_render_chart_decision", lambda state: state)
-
-# Add edges
 builder.add_edge(START, "agent")
-
-# Conditional edges
-builder.add_conditional_edges(
-    "agent", should_use_tools, {"tools": "tools", "analyze": "analyze"}
-)
-
-# After tools, decide if we need to process the tool output (agent) or check for chart/end
+builder.add_conditional_edges("agent", should_use_tools, {"tools": "tools", "END": END})
 builder.add_conditional_edges(
     "tools",
     after_tools,
-    {
-        "agent": "agent",
-        "render_or_end": "should_render_chart_decision",
-    },
+    {"agent": "agent", "render_or_end": "should_render_chart_decision"},
 )
-
-# This conditional edge starts from the newly added node
 builder.add_conditional_edges(
     "should_render_chart_decision",
     should_render_chart,
     {"render_chart": "render_chart", "agent": "agent"},
 )
-
-builder.add_conditional_edges(
-    "analyze", should_format_response, {"format": "format", "END": END}
-)
-
 builder.add_edge("render_chart", "agent")
-builder.add_edge("format", END)
-
-# Compile the graph
 graph = builder.compile(checkpointer=memory)
-
 
 @cl.on_app_startup
 def on_app_startup():
