@@ -1,0 +1,38 @@
+name: Deploy on main push
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Setup SSH
+        uses: webfactory/ssh-agent@v0.5.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Add EC2 host to known hosts
+        run: ssh-keyscan -H ${{ secrets.PUBLIC_IP }}>> ~/.ssh/known_hosts
+
+      - name: Deploy using ssh
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.PUBLIC_IP }}
+          username: ${{ secrets.SSH_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: 22
+          script: |
+            source $HOME/.local/bin/env
+            cd /home/ubuntu/finance-chatbot
+            git reset --hard
+            git fetch origin --all
+            git checkout main
+            git pull origin main
+            echo "DONE PULL COMMIT DEV"
+            uv sync
+            pm2 restart all
+            pm2 save
