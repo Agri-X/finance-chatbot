@@ -4,7 +4,6 @@ from typing import List, Optional, Union
 from alpaca.data import ContractType
 from alpaca.trading import (
     AssetStatus,
-    ExerciseStyle,
     GetOptionContractsRequest,
 )
 from mcp.server.fastmcp import FastMCP

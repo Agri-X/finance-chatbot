@@ -5,6 +5,7 @@ import os
 import asyncio
 from pathlib import Path
 from typing import Literal
+from langchain.prompts import PromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.prebuilt import ToolNode
 from langchain.schema.runnable.config import RunnableConfig
@@ -20,7 +21,31 @@ from matplotlib import pyplot as plt
 import chainlit as cl
 import pandas as pd
 
-from utils.prompt import system_prompt
+try:
+    from langsmith import Client
+
+    langchain_api_key = os.getenv("LANGSMITH_API_KEY")
+    if not langchain_api_key:
+        raise ValueError("LANGSMITH_API_KEY environment variable is not set.")
+    client = Client(api_key=langchain_api_key)
+
+    # Pull a completion-style (instruct) PromptTemplate
+    prompt_template: PromptTemplate = client.pull_prompt("finance-chatbot")
+
+    # Format with current date
+    prompt_str = prompt_template.format(date=datetime.now().strftime("%Y-%m-%d"))
+
+    # Wrap into a SystemMessage for consistency downstream
+    system_prompt = SystemMessage(content=prompt_str)
+
+except Exception as e:
+    # Fallback to local template if something goes wrong
+    from utils.prompt import (
+        system_template,
+    )  # e.g., PromptTemplate or ChatPromptTemplate
+
+    rendered = system_template.format(date=datetime.now().strftime("%Y-%m-%d"))
+    system_prompt = SystemMessage(content=rendered)
 
 memory = MemorySaver()
 
@@ -68,12 +93,6 @@ client = MultiServerMCPClient(
             },
             "transport": "stdio",
         },
-        # "fetch": {"transport": "stdio", "command": "uvx", "args": ["mcp-server-fetch"]},
-        # "memory": {
-        #     "transport": "stdio",
-        #     "command": "npx",
-        #     "args": ["-y", "@modelcontextprotocol/server-memory"],
-        # },
     }  # type: ignore
 )
 
@@ -99,27 +118,9 @@ tool_node = ToolNode(tools=tools)
 
 # Node Functions
 def call_main_model(state: MessagesState):
-    """Main model that decides which tools to use"""
     messages = [system_prompt] + state["messages"]
     response = main_model.invoke(messages)
     return {"messages": [response]}
-
-
-def analyze_response_need(state: MessagesState):
-    """Analyze if the response needs formatting"""
-    messages = state["messages"]
-    last_message = messages[-1]
-
-    # Simple heuristic: if response is long or contains tool results, it might need formatting
-    needs_formatting = len(last_message.content) > 500 or any(  # Long response
-        hasattr(msg, "tool_calls") and msg.tool_calls for msg in messages[-3:]
-    )  # Recent tool usage
-
-    # Store decision in state
-    new_state = state.copy()
-    new_state["needs_formatting"] = needs_formatting
-    return new_state
-
 
 def get_trailing_tool_messages_with_indices(arr):
     result = []
@@ -263,6 +264,7 @@ builder.add_conditional_edges(
 builder.add_edge("render_chart", "agent")
 graph = builder.compile(checkpointer=memory)
 
+
 @cl.on_app_startup
 def on_app_startup():
     logging.info("App is starting up...")
@@ -397,6 +399,11 @@ async def set_starters():
     ]
 
     return [cl.Starter(label=label, message=message) for label, message in starters]
+
+
+@cl.on_chat_resume
+async def on_chat_resume(thread):
+    pass
 
 
 @cl.on_message

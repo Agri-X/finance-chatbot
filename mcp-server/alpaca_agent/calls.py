@@ -5,6 +5,7 @@ from alpaca.trading.requests import GetOptionContractsRequest
 
 from alpaca.trading.client import TradingClient
 from alpaca.data import (
+    BarSet,
     ContractType,
     CryptoBarsRequest,
     CryptoLatestQuoteRequest,
@@ -252,14 +253,15 @@ def get_batched_option_snapshots(
     option_data_client: OptionHistoricalDataClient,
     symbols: List[str],
 ):
-    batch_size = 100
+    batch_size = 1000
     all_snapshots = {}
 
     for i in range(0, len(symbols), batch_size):
         batch_symbols = symbols[i : i + batch_size]
-        snapshots = option_data_client.get_option_snapshot(
-            OptionSnapshotRequest(symbol_or_symbols=batch_symbols)
-        )
+        request = OptionSnapshotRequest(symbol_or_symbols=batch_symbols)
+        logging.info(f"request: {request}")
+        snapshots = option_data_client.get_option_snapshot(request)
+        logging.info(f"response: {snapshots}")
         all_snapshots.update(snapshots)
     return all_snapshots
 
@@ -278,10 +280,15 @@ def get_option_contracts(
     contracts = []
     next_page_token = None
 
-    logging.info(f"Fetching option contracts for {request.root_symbol}...")
+    logging.info(f"Fetching option contracts for {request.underlying_symbols}...")
+    loop_count = 0  # Initialize a loop counter
 
     while True:
+        loop_count += 1  # Increment the counter at the start of each loop
+
+        logging.info(f"request: {request}")
         response = trading_client.get_option_contracts(request)
+        logging.info(f"response: {response}")
 
         if not response or not response.option_contracts:
             break
@@ -296,13 +303,17 @@ def get_option_contracts(
             logging.info(f"Limit of {limit} contracts reached.")
             break
 
+        if loop_count >= 2:  # Add this condition to break after 2 loops
+            logging.info("Two loops completed, breaking out.")
+            break
+
     symbols = [c.symbol for c in contracts]
-    print(f"Found {len(symbols)} contracts. Fetching snapshots...")
+    logging.info(f"Found {len(symbols)} contracts. Fetching snapshots...")
 
     try:
         snapshots = get_batched_option_snapshots(option_data_client, symbols)
     except Exception as e:
-        print(f"Error fetching snapshots: {e}")
+        logging.info(f"Error fetching snapshots: {e}")
         return []
 
     try:
@@ -323,7 +334,7 @@ def get_option_contracts(
         daily_returns = bar_data["close"].pct_change().dropna()
         hv = daily_returns.std() * (252**0.5)
     except Exception as e:
-        print(f"Error calculating historical volatility: {e}")
+        logging.info(f"Error calculating historical volatility: {e}")
         hv = None
 
     rows = []
@@ -391,4 +402,4 @@ if __name__ == "__main__":
     alpaca_client = AlpacaClient()
     trading_client = alpaca_client.trading_client()
 
-    print(get_orders(trading_client))
+    logging.info(get_orders(trading_client))
