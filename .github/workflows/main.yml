@@ -29,7 +29,7 @@ jobs:
             source $HOME/.local/bin/env
             cd /home/ubuntu/finance-chatbot
             git reset --hard
-            git fetch origin --all
+            git fetch
             git checkout main
             git pull origin main
             echo "DONE PULL COMMIT DEV"
