@@ -911,7 +911,7 @@ def stock_resource(symbol: str):
         return f"[{symbol.upper()}] Error: {e}"
 
 
-@mcp.tool()
+# @mcp.tool()
 def get_stock_history(symbol: str, period: str = "1mo"):
     """
     Retrieve historical stock data in CSV format.
@@ -963,7 +963,7 @@ def clean_column_name(col_name):
     return col_name.strip()
 
 
-@mcp.tool()
+# @mcp.tool()
 async def generate_chart(ticker, period="5mo", interval="1d"):
     """
     Generate a chart for the given stock ticker symbol.
@@ -1164,6 +1164,7 @@ def get_earnings_in_range(tickers, start_date, end_date, max_workers=20):
         .sort_values(by=["Earnings Date", "Ticker"])
         .reset_index(drop=True)
     )
+
 
 @mcp.tool()
 def get_sp500_tickers():

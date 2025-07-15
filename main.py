@@ -21,6 +21,11 @@ from matplotlib import pyplot as plt
 import chainlit as cl
 import pandas as pd
 
+from google.ai.generativelanguage_v1beta.types import Tool as GenAITool
+
+from utils.auth import authenticate_email_user, create_user
+
+
 try:
     from langsmith import Client
 
@@ -121,6 +126,7 @@ def call_main_model(state: MessagesState):
     messages = [system_prompt] + state["messages"]
     response = main_model.invoke(messages)
     return {"messages": [response]}
+
 
 def get_trailing_tool_messages_with_indices(arr):
     result = []
@@ -263,33 +269,6 @@ builder.add_conditional_edges(
 )
 builder.add_edge("render_chart", "agent")
 graph = builder.compile(checkpointer=memory)
-
-
-@cl.on_app_startup
-def on_app_startup():
-    logging.info("App is starting up...")
-
-
-@cl.password_auth_callback
-async def auth_callback(username: str, password: str):
-    if (username, password) == ("admin", "admin"):
-        return cl.User(
-            identifier="admin", metadata={"role": "admin", "provider": "credentials"}
-        )
-    else:
-        return None
-
-
-@cl.on_chat_start
-async def on_chat_start():
-    """Initialize chat session - requires authentication"""
-    user = cl.user_session.get("user")
-
-    if not user:
-        await cl.Message(
-            content="Authentication required. Please log in to continue."
-        ).send()
-        return
 
 
 async def generate_charts_from_embedded_data(chart_configs):
@@ -436,6 +415,36 @@ async def on_message(msg: cl.Message):
             await final_answer.stream_token(message.content)
 
     await final_answer.send()
+
+
+@cl.on_app_startup
+def on_app_startup():
+    logging.info("App is starting up...")
+
+
+@cl.password_auth_callback
+async def auth_callback(username: str, password: str):
+    isLoggedIn = await authenticate_email_user(email=username, password=password)
+
+    if isLoggedIn:
+        return cl.User(
+            identifier=username,
+            metadata={"role": "admin", "provider": "credentials"},
+        )
+    else:
+        return
+
+
+@cl.on_chat_start
+async def on_chat_start():
+    """Initialize chat session - requires authentication"""
+    user = cl.user_session.get("user")
+
+    if not user:
+        await cl.Message(
+            content="Authentication required. Please log in to continue."
+        ).send()
+        return
 
 
 if __name__ == "__main__":
