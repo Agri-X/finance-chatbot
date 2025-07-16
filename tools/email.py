@@ -2,7 +2,6 @@ from os import getenv
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from typing import Optional
 import markdown
 from langchain.tools import tool
 
@@ -17,8 +16,7 @@ def send_markdown_email(
     Sends an email with content formatted from Markdown.
 
     This function converts the provided Markdown content into HTML
-    and sends it as a rich-text email. It requires sender credentials
-    and SMTP server details.
+    and sends it as a rich-text email.
 
     Args:
         recipient_email (str): The email address of the recipient.

@@ -46,8 +46,8 @@ class ScheduledTask:
     task_id: str
     execution_time: datetime
     prompt: str
-    after_finish_prompt: Optional[str] = None
-    repeat_interval_seconds: Optional[int] = None
+    # after_finish_prompt: Optional[str] = None
+    # repeat_interval_seconds: Optional[int] = None
     timezone: str = "local"
     status: str = "pending"
     created_at: datetime = field(default_factory=datetime.now)
@@ -198,33 +198,33 @@ class TaskScheduler:
             self._run_llm_prompt(task.prompt, task.task_id)
 
             # Execute after-finish prompt if provided
-            if task.after_finish_prompt:
-                self._run_llm_prompt(task.after_finish_prompt, task.task_id)
+            # if task.after_finish_prompt:
+            #     self._run_llm_prompt(task.after_finish_prompt, task.task_id)
 
             # Handle task completion and repetition
             with self.lock:
-                if task.repeat_interval_seconds and task.repeat_interval_seconds > 0:
-                    # Schedule next execution maintaining timezone awareness
-                    if task.execution_time.tzinfo is not None:
-                        # Use timezone-aware datetime
-                        next_time = datetime.now(
-                            task.execution_time.tzinfo
-                        ) + timedelta(seconds=task.repeat_interval_seconds)
-                    else:
-                        # Use naive datetime
-                        next_time = datetime.now() + timedelta(
-                            seconds=task.repeat_interval_seconds
-                        )
+                # if task.repeat_interval_seconds and task.repeat_interval_seconds > 0:
+                #     # Schedule next execution maintaining timezone awareness
+                #     if task.execution_time.tzinfo is not None:
+                #         # Use timezone-aware datetime
+                #         next_time = datetime.now(
+                #             task.execution_time.tzinfo
+                #         ) + timedelta(seconds=task.repeat_interval_seconds)
+                #     else:
+                #         # Use naive datetime
+                #         next_time = datetime.now() + timedelta(
+                #             seconds=task.repeat_interval_seconds
+                #         )
 
-                    task.execution_time = next_time
-                    task.status = "pending"
-                    logging.info(
-                        f"Task {task.task_id} rescheduled for {task.execution_time}"
-                    )
-                else:
-                    # One-time task completed
-                    task.status = "completed"
-                    logging.info(f"Task {task.task_id} completed")
+                #     task.execution_time = next_time
+                #     task.status = "pending"
+                #     logging.info(
+                #         f"Task {task.task_id} rescheduled for {task.execution_time}"
+                #     )
+                # else:
+                # One-time task completed
+                task.status = "completed"
+                logging.info(f"Task {task.task_id} completed")
 
         except Exception as e:
             logging.error(f"Error in task execution: {e}")
@@ -304,8 +304,6 @@ task_scheduler: Optional[TaskScheduler] = None
 async def schedule_task_tool(
     time_to_execute: str,
     prompt: str,
-    after_finish_prompt: Optional[str] = None,
-    repeat_interval_seconds: Optional[int] = None,
     timezone: str = "local",
 ) -> str:
     """
@@ -319,7 +317,6 @@ async def schedule_task_tool(
     Args:
         time_to_execute: Scheduled time in "YYYY-MM-DD HH:MM:SS" format
         prompt: Main instruction for the agent to execute
-        after_finish_prompt: Optional follow-up instruction after main task
         repeat_interval_seconds: Optional interval in seconds for recurring tasks
         timezone: Timezone for execution time (e.g., 'UTC', 'America/New_York')
 
@@ -330,9 +327,6 @@ async def schedule_task_tool(
 
     if not task_scheduler:
         return "Error: Task scheduler not initialized."
-
-    if repeat_interval_seconds is not None and repeat_interval_seconds <= 0:
-        return "Error: repeat_interval_seconds must be a positive integer."
 
     try:
         # Parse timezone
@@ -355,8 +349,8 @@ async def schedule_task_tool(
             task_id=task_id,
             execution_time=execution_dt,
             prompt=prompt,
-            after_finish_prompt=after_finish_prompt,
-            repeat_interval_seconds=repeat_interval_seconds,
+            # after_finish_prompt=after_finish_prompt,
+            # repeat_interval_seconds=repeat_interval_seconds,
             timezone=timezone,
         )
 
@@ -730,8 +724,24 @@ async def set_starters():
             message="Show me the latest news impacting the semiconductor industry.",
         ),
         cl.Starter(
-            label="⏰ Schedule Daily Market Summary",
-            message="Schedule a daily market summary to be sent to my email at 9 AM.",
+            label="⏰ Schedule Market Summary",
+            message="Schedule a market summary to be sent to guest-agrix@yopmail.com in 5 minutes.",
+        ),
+        cl.Starter(
+            label="💵 Buy TSLA Stock",
+            message="Buy 10 shares of TSLA.",
+        ),
+        cl.Starter(
+            label="💰 Portfolio Summary",
+            message="What is my current portfolio summary?",
+        ),
+        cl.Starter(
+            label="📋 NVDA Call Options",
+            message="Show me call options for NVDA expiring on 2025-01-17.",
+        ),
+        cl.Starter(
+            label="📊 Compare GOOGL and MSFT",
+            message="Compare the stock performance of GOOGL and MSFT.",
         ),
         cl.Starter(
             label="🤖 What Can You Do?",
