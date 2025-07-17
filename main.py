@@ -5,8 +5,8 @@ import logging
 import os
 import asyncio
 from pathlib import Path
-from datetime import datetime, timedelta
-from typing import Any, Literal, Optional, Dict, List
+from datetime import datetime
+from typing import Literal, Optional, Dict, List
 from dataclasses import dataclass, field
 from threading import Thread
 import threading
@@ -39,15 +39,11 @@ load_dotenv()
 
 @dataclass
 class ScheduledTask:
-    """
-    Represents a scheduled task with all necessary execution parameters.
-    """
+    """Represents a scheduled task with all necessary execution parameters."""
 
     task_id: str
     execution_time: datetime
     prompt: str
-    # after_finish_prompt: Optional[str] = None
-    # repeat_interval_seconds: Optional[int] = None
     timezone: str = "local"
     status: str = "pending"
     created_at: datetime = field(default_factory=datetime.now)
@@ -56,10 +52,7 @@ class ScheduledTask:
 
 
 class TaskScheduler:
-    """
-    In-memory task scheduler that manages scheduled LLM executions.
-    Runs in a separate thread to handle task execution timing.
-    """
+    """In-memory task scheduler that manages scheduled LLM executions."""
 
     def __init__(self, chatbot_instance):
         self.tasks: Dict[str, ScheduledTask] = {}
@@ -74,11 +67,9 @@ class TaskScheduler:
         """Start the task scheduler thread."""
         if not self.running:
             self.running = True
-            # Try to get the current event loop
             try:
                 self.loop = asyncio.get_event_loop()
             except RuntimeError:
-                # No event loop in current thread, will create one when needed
                 self.loop = None
 
             self.scheduler_thread = Thread(target=self._run_scheduler, daemon=True)
@@ -95,15 +86,7 @@ class TaskScheduler:
         logging.info("Task scheduler stopped")
 
     def add_task(self, task: ScheduledTask) -> bool:
-        """
-        Add a new task to the scheduler.
-
-        Args:
-            task: The ScheduledTask to add
-
-        Returns:
-            bool: True if task was added successfully
-        """
+        """Add a new task to the scheduler."""
         with self.lock:
             self.tasks[task.task_id] = task
             logging.info(
@@ -112,15 +95,7 @@ class TaskScheduler:
             return True
 
     def remove_task(self, task_id: str) -> bool:
-        """
-        Remove a task from the scheduler.
-
-        Args:
-            task_id: ID of the task to remove
-
-        Returns:
-            bool: True if task was removed successfully
-        """
+        """Remove a task from the scheduler."""
         with self.lock:
             if task_id in self.tasks:
                 del self.tasks[task_id]
@@ -133,6 +108,11 @@ class TaskScheduler:
         with self.lock:
             return [task for task in self.tasks.values() if task.status == "pending"]
 
+    def get_all_tasks(self) -> List[ScheduledTask]:
+        """Get all tasks."""
+        with self.lock:
+            return list(self.tasks.values())
+
     def _run_scheduler(self):
         """Main scheduler loop that runs in a separate thread."""
         while self.running:
@@ -143,16 +123,13 @@ class TaskScheduler:
                 with self.lock:
                     for task in list(self.tasks.values()):
                         if task.status == "pending":
-                            # Ensure both datetimes have the same timezone awareness
                             task_time = task.execution_time
                             if task_time.tzinfo is not None:
-                                # Task time is timezone-aware, make current_time aware
                                 if current_time.tzinfo is None:
                                     current_time = current_time.replace(
                                         tzinfo=task_time.tzinfo
                                     )
                             else:
-                                # Task time is naive, make current_time naive
                                 if current_time.tzinfo is not None:
                                     current_time = current_time.replace(tzinfo=None)
 
@@ -166,15 +143,10 @@ class TaskScheduler:
 
             except Exception as e:
                 logging.error(f"Error in scheduler loop: {e}")
-                time.sleep(5)  # Wait before retrying
+                time.sleep(5)
 
     def _execute_task(self, task: ScheduledTask):
-        """
-        Execute a single task by calling the LLM with the stored prompt.
-
-        Args:
-            task: The ScheduledTask to execute
-        """
+        """Execute a single task by calling the LLM with the stored prompt."""
         try:
             logging.info(f"Executing task {task.task_id}: {task.prompt[:50]}...")
 
@@ -183,7 +155,6 @@ class TaskScheduler:
                 task.last_executed = datetime.now()
                 task.execution_count += 1
 
-            # Execute the main prompt - run in thread pool to avoid blocking
             self.executor.submit(self._execute_task_sync, task)
 
         except Exception as e:
@@ -194,35 +165,8 @@ class TaskScheduler:
     def _execute_task_sync(self, task: ScheduledTask):
         """Execute task synchronously in thread pool."""
         try:
-            # Execute the main prompt
             self._run_llm_prompt(task.prompt, task.task_id)
-
-            # Execute after-finish prompt if provided
-            # if task.after_finish_prompt:
-            #     self._run_llm_prompt(task.after_finish_prompt, task.task_id)
-
-            # Handle task completion and repetition
             with self.lock:
-                # if task.repeat_interval_seconds and task.repeat_interval_seconds > 0:
-                #     # Schedule next execution maintaining timezone awareness
-                #     if task.execution_time.tzinfo is not None:
-                #         # Use timezone-aware datetime
-                #         next_time = datetime.now(
-                #             task.execution_time.tzinfo
-                #         ) + timedelta(seconds=task.repeat_interval_seconds)
-                #     else:
-                #         # Use naive datetime
-                #         next_time = datetime.now() + timedelta(
-                #             seconds=task.repeat_interval_seconds
-                #         )
-
-                #     task.execution_time = next_time
-                #     task.status = "pending"
-                #     logging.info(
-                #         f"Task {task.task_id} rescheduled for {task.execution_time}"
-                #     )
-                # else:
-                # One-time task completed
                 task.status = "completed"
                 logging.info(f"Task {task.task_id} completed")
 
@@ -232,13 +176,7 @@ class TaskScheduler:
                 task.status = "failed"
 
     def _run_llm_prompt(self, prompt: str, task_id: str):
-        """
-        Run LLM prompt synchronously.
-
-        Args:
-            prompt: The prompt to execute
-            task_id: ID of the task for logging
-        """
+        """Run LLM prompt synchronously."""
         try:
             logging.info(f"Running LLM prompt for task {task_id}: {prompt[:100]}...")
 
@@ -246,26 +184,20 @@ class TaskScheduler:
                 logging.error(f"Chatbot graph not initialized for task {task_id}")
                 return
 
-            # Create a system thread_id for scheduled tasks
             thread_id = f"scheduled_task_{task_id}"
-
             config = {
                 "configurable": {"thread_id": thread_id},
                 "recursion_limit": 100,
             }
 
-            # Execute the prompt through the chatbot's graph
             messages = [HumanMessage(content=prompt)]
 
-            # Run synchronously using asyncio
             if self.loop and self.loop.is_running():
-                # If there's an event loop running, schedule the coroutine
                 future = asyncio.run_coroutine_threadsafe(
                     self._execute_llm_async(messages, config, task_id), self.loop
                 )
-                future.result(timeout=300)  # 5 minute timeout
+                future.result(timeout=300)
             else:
-                # No event loop, create a new one
                 asyncio.run(self._execute_llm_async(messages, config, task_id))
 
         except Exception as e:
@@ -296,7 +228,7 @@ class TaskScheduler:
             raise
 
 
-# --- Global Task Scheduler ---
+# Global Task Scheduler
 task_scheduler: Optional[TaskScheduler] = None
 
 
@@ -309,15 +241,9 @@ async def schedule_task_tool(
     """
     Schedule a task to be executed by the AI agent at a specific future time.
 
-    This tool allows users to schedule automated actions like:
-    - "get info on nvidia and send to my email"
-    - "check portfolio performance daily"
-    - "send weekly market summary"
-
     Args:
         time_to_execute: Scheduled time in "YYYY-MM-DD HH:MM:SS" format
         prompt: Main instruction for the agent to execute
-        repeat_interval_seconds: Optional interval in seconds for recurring tasks
         timezone: Timezone for execution time (e.g., 'UTC', 'America/New_York')
 
     Returns:
@@ -349,23 +275,11 @@ async def schedule_task_tool(
             task_id=task_id,
             execution_time=execution_dt,
             prompt=prompt,
-            # after_finish_prompt=after_finish_prompt,
-            # repeat_interval_seconds=repeat_interval_seconds,
             timezone=timezone,
         )
 
         # Add to scheduler
         if task_scheduler.add_task(task):
-            # Update UI task list
-            task_list = get_task_list()
-            new_task = cl.Task(
-                forId=task_id,
-                title=f"Scheduled: {prompt[:40]}...",
-                status=cl.TaskStatus.READY,
-            )
-            task_list.tasks.append(new_task)
-            await task_list.send()
-
             scheduled_time_str = execution_dt.strftime("%Y-%m-%d %H:%M:%S %Z")
             return f"Task '{prompt[:30]}...' scheduled successfully for {scheduled_time_str}."
         else:
@@ -378,23 +292,72 @@ async def schedule_task_tool(
         return "An unexpected error occurred while scheduling the task."
 
 
-def get_task_list() -> cl.TaskList:
+@tool
+async def list_scheduled_tasks() -> str:
     """
-    Retrieve or create the TaskList for the current user session.
+    List all scheduled tasks with their status and execution times.
 
     Returns:
-        cl.TaskList: The task list for the current session
+        str: Formatted list of all scheduled tasks
     """
-    task_list = cl.user_session.get("task_list")
-    if not task_list:
-        task_list = cl.TaskList()
-        task_list.name = "Scheduled Tasks"
-        cl.user_session.set("task_list", task_list)
-    return task_list
+    global task_scheduler
+
+    if not task_scheduler:
+        return "Error: Task scheduler not initialized."
+
+    tasks = task_scheduler.get_all_tasks()
+
+    if not tasks:
+        return "No scheduled tasks found."
+
+    result = "Scheduled Tasks:\n"
+    result += "=" * 50 + "\n"
+
+    for task in sorted(tasks, key=lambda x: x.execution_time):
+        status_emoji = {
+            "pending": "⏳",
+            "executing": "🔄",
+            "completed": "✅",
+            "failed": "❌",
+        }.get(task.status, "❓")
+
+        result += f"{status_emoji} Task ID: {task.task_id}\n"
+        result += f"   Prompt: {task.prompt[:50]}...\n"
+        result += (
+            f"   Scheduled: {task.execution_time.strftime('%Y-%m-%d %H:%M:%S %Z')}\n"
+        )
+        result += f"   Status: {task.status}\n"
+        if task.last_executed:
+            result += f"   Last executed: {task.last_executed.strftime('%Y-%m-%d %H:%M:%S')}\n"
+        result += f"   Execution count: {task.execution_count}\n"
+        result += "-" * 30 + "\n"
+
+    return result
 
 
-# --- MCP Client Configuration ---
+@tool
+async def cancel_scheduled_task(task_id: str) -> str:
+    """
+    Cancel a scheduled task by its ID.
 
+    Args:
+        task_id: The ID of the task to cancel
+
+    Returns:
+        str: Status message about the cancellation
+    """
+    global task_scheduler
+
+    if not task_scheduler:
+        return "Error: Task scheduler not initialized."
+
+    if task_scheduler.remove_task(task_id):
+        return f"Task {task_id} has been successfully cancelled."
+    else:
+        return f"Task {task_id} not found or could not be cancelled."
+
+
+# MCP Client Configuration
 mcp_client = MultiServerMCPClient(
     {
         "yf_server": {
@@ -444,10 +407,7 @@ mcp_client = MultiServerMCPClient(
 
 
 class FinanceChatbot:
-    """
-    Main chatbot class that handles LLM interactions and manages the conversation flow.
-    Integrates with MCP servers for financial data and supports scheduled task execution.
-    """
+    """Main chatbot class that handles LLM interactions and manages the conversation flow."""
 
     def __init__(self):
         self.system_prompt = None
@@ -467,7 +427,12 @@ class FinanceChatbot:
         """Initialize MCP client and aggregate all available tools."""
         logging.info("Initializing MCP client and tools...")
         mcp_tools = await mcp_client.get_tools()
-        self.list_tools = mcp_tools + time_tools + [schedule_task_tool] + email_tools
+        self.list_tools = (
+            mcp_tools
+            + time_tools
+            + [schedule_task_tool, list_scheduled_tasks, cancel_scheduled_task]
+            + email_tools
+        )
         self.tool_node = ToolNode(tools=self.list_tools)
         logging.info("Tools initialized successfully.")
 
@@ -534,59 +499,25 @@ class FinanceChatbot:
         logging.info("Graph built and compiled successfully.")
 
     def call_main_model(self, state: MessagesState):
-        """
-        Node function to invoke the main language model.
-
-        Args:
-            state: Current conversation state
-
-        Returns:
-            dict: Updated state with model response
-        """
+        """Node function to invoke the main language model."""
         messages = [self.system_prompt] + state["messages"]
         response = self.main_model.invoke(messages)
         return {"messages": [response]}
 
     def should_use_tools(self, state: MessagesState) -> Literal["tools", "END"]:
-        """
-        Determine whether to use tools or end the conversation.
-
-        Args:
-            state: Current conversation state
-
-        Returns:
-            str: Next node to execute
-        """
+        """Determine whether to use tools or end the conversation."""
         last_message = state["messages"][-1]
         return "tools" if getattr(last_message, "tool_calls", []) else "END"
 
     def after_tools(self, state: MessagesState) -> Literal["agent", "render_or_end"]:
-        """
-        Determine next action after tool execution.
-
-        Args:
-            state: Current conversation state
-
-        Returns:
-            str: Next node to execute
-        """
+        """Determine next action after tool execution."""
         last_message = state["messages"][-1]
         return "render_or_end" if last_message.type == "tool" else "agent"
 
     async def process_message(
         self, message_content: str, user_id: str, session_id: str
     ):
-        """
-        Process a user message through the chatbot system.
-
-        Args:
-            message_content: The user's message
-            user_id: User identifier
-            session_id: Session identifier
-
-        Returns:
-            async generator: Streaming response from the model
-        """
+        """Process a user message through the chatbot system."""
         thread_id = f"{user_id}_{session_id}"
 
         config = {
@@ -610,13 +541,11 @@ class FinanceChatbot:
                 yield message.content
 
 
-# --- Global Instances ---
+# Global Instances
 app = FinanceChatbot()
 
 
-# --- Chainlit Event Handlers ---
-
-
+# Chainlit Event Handlers
 @cl.on_app_startup
 def on_app_startup():
     """Initialize logging and start the task scheduler."""
@@ -646,16 +575,7 @@ def on_stop():
 
 @cl.password_auth_callback
 async def auth_callback(username: str, password: str):
-    """
-    Handle user authentication.
-
-    Args:
-        username: User's email
-        password: User's password
-
-    Returns:
-        cl.User or None: User object if authenticated, None otherwise
-    """
+    """Handle user authentication."""
     is_logged_in = await authenticate_email_user(email=username, password=password)
     if is_logged_in:
         return cl.User(identifier=username, metadata={"provider": "credentials"})
@@ -667,30 +587,17 @@ async def on_chat_start():
     """Initialize a new chat session."""
     user = cl.user_session.get("user")
 
-    # Initialize scheduler if not already done
     initialize_scheduler()
-
     await app.initialize_tools()
 
     if not user:
         await cl.Message(content="Authentication required. Please log in.").send()
         return
 
-    # Initialize task list for the session
-    task_list = cl.user_session.get("task_list")
-    if not task_list:
-        task_list = cl.TaskList(name="Scheduled Tasks", status="Running")
-        cl.user_session.set("task_list", task_list)
-
 
 @cl.on_message
 async def on_message(msg: cl.Message):
-    """
-    Handle incoming user messages.
-
-    Args:
-        msg: The incoming message from the user
-    """
+    """Handle incoming user messages."""
     user = cl.user_session.get("user")
     if not user:
         await cl.Message(content="Please log in to continue chatting.").send()
@@ -706,14 +613,9 @@ async def on_message(msg: cl.Message):
     await final_answer.send()
 
 
-@cl.set_starters  # type: ignore
+@cl.set_starters
 async def set_starters():
-    """
-    Define starter suggestions for new chat sessions.
-
-    Returns:
-        list: List of starter suggestions
-    """
+    """Define starter suggestions for new chat sessions."""
     return [
         cl.Starter(
             label="📈 Apple Investment Analysis",
@@ -742,6 +644,10 @@ async def set_starters():
         cl.Starter(
             label="📊 Compare GOOGL and MSFT",
             message="Compare the stock performance of GOOGL and MSFT.",
+        ),
+        cl.Starter(
+            label="🗓️ List Scheduled Tasks",
+            message="Show me all my scheduled tasks.",
         ),
         cl.Starter(
             label="🤖 What Can You Do?",
