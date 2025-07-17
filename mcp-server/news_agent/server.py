@@ -2,7 +2,6 @@ import logging
 import os
 from newsapi import NewsApiClient
 from typing import Optional, Dict, Any
-from newspaper import Article
 
 from mcp.server.fastmcp import FastMCP
 
@@ -183,27 +182,6 @@ def get_sources(
     except Exception as e:
         logger.error(f"An unexpected error occurred in get_sources: {e}", exc_info=True)
         return {"status": "error", "message": f"An unexpected error occurred: {e}"}
-
-
-@mcp.tool()
-def fetch_article_content(url: str) -> str:
-    """
-    Fetches the full content of an article from its URL.
-
-    Args:
-        url (str): The URL of the article to fetch.
-
-    Returns:
-        str: The full content of the article.
-    """
-    try:
-        article = Article(url)
-        article.download()
-        article.parse()
-        return article.text
-    except Exception as e:
-        logger.error(f"Error fetching article content: {e}", exc_info=True)
-        return f"Error fetching article content: {e}"
 
 
 def to_markdown(articles):

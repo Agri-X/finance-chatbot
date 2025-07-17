@@ -1,4 +1,4 @@
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone as tzo
 from typing import Optional
 from langchain.tools import tool
 
@@ -6,7 +6,7 @@ import pytz
 
 
 @tool
-def get_current_time(
+async def get_current_time(
     format_string: str = "%Y-%m-%d %H:%M:%S %Z%z", timezone: str = "local"
 ) -> str:
     """
@@ -77,7 +77,7 @@ def get_current_time(
             now = datetime.now()
             localized_now = now.astimezone()
         elif timezone == "UTC":
-            localized_now = datetime.now(UTC)
+            localized_now = datetime.now(tzo.utc)
         else:
             # For specific IANA timezones
             tz = pytz.timezone(timezone)
@@ -93,7 +93,7 @@ def get_current_time(
 
 
 @tool
-def calculate_relative_time(
+async def calculate_relative_time(
     delta_value: int,
     delta_unit: str,
     operation: str = "add",
@@ -177,7 +177,7 @@ def calculate_relative_time(
                 # Get local naive datetime and then localize it
                 base_time = datetime.now().astimezone()
             elif timezone == "UTC":
-                base_time = datetime.now(UTC)
+                base_time = datetime.now(tzo.utc)
             else:
                 tz = pytz.timezone(timezone)
                 base_time = datetime.now(tz)
@@ -191,7 +191,7 @@ def calculate_relative_time(
                 if timezone == "local":
                     base_time = start_time.astimezone()
                 elif timezone == "UTC":
-                    base_time = start_time.replace(tzinfo=UTC)
+                    base_time = start_time.replace(tzinfo=tzo.utc)
                 else:
                     tz = pytz.timezone(timezone)
                     base_time = tz.localize(start_time)
@@ -220,5 +220,6 @@ def calculate_relative_time(
         return f"Error: Invalid format string '{format_string}'. Details: {e}"
     except Exception as e:
         return f"An unexpected error occurred: {e}"
+
 
 time_tools = [calculate_relative_time, get_current_time]

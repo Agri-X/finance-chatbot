@@ -1,3 +1,16 @@
+# Advanced AI Investment Analyst and Trading Executive: README
+
+## Changelog: Version 0.1.1
+
+This version focuses on refining the documented capabilities and correcting the list of available tools to accurately reflect the AI's current functions.
+
+### **🛠️ Tool & Documentation Refinements**
+
+* **Tool List Correction**: Removed `get_earnings_calendar`, `get_sp500_tickers`, and `fetch_article_content` from the documented tool list as they are not currently available.
+* **New Tool Documentation**: Added `get_and_display_earnings_by_range` to the list of available tools.
+
+***
+
 ## Changelog: Version 0.1.0
 
 This version introduces a major new capability focused on scheduling, automation, and reporting, significantly expanding the assistant's utility beyond real-time analysis and trading.
@@ -24,14 +37,9 @@ A new suite of tools has been added to support the scheduling and reporting feat
 ### **📄 Documentation & Tool Updates**
 
 * **README Update**: The main README has been updated to include the new "Scheduling, Reminders, & Reporting" section.
-* **Newly Documented Tools**: The following tools, while previously available, are now officially documented in the tool list for better visibility:
-  * `get_earnings_calendar`
-  * `get_sp500_tickers`
 * The `generate_chart` tool mentioned in the v0.0.1 README was removed as it is not an available function.
 
 ***
-
-# Advanced AI Investment Analyst and Trading Executive: README
 
 ## Introduction
 
@@ -71,7 +79,7 @@ I gather a wide range of data points from various sources to build a complete pi
 * **Core Financials**: `get_stock_price`, `get_price_history`
 * **Market Sentiment**: `get_current_fng_tool`, `get_historical_fng_tool`, `analyze_fng_trend`
 * **Ownership & Derivatives**: `get_institutional_holders`, `get_insider_trades`, `get_options`
-* **Earnings Data**: `get_earnings_calendar`
+* **Earnings Data**: `get_earnings_history`, `get_and_display_earnings_by_range`
 
 #### 3. Financial Report Analysis
 
@@ -139,51 +147,6 @@ I can automate tasks and deliver information at a time that suits you.
 
 ***
 
-### Output Format
-
-For **analysis requests**, my findings are delivered in a structured markdown format for clarity. For trading or account management requests, the response will be a direct confirmation of the action taken.
-
-```markdown
-## Investment Analysis: [TICKER/COMPANY_NAME]
-***--
-### Executive Summary
-[A concise summary of the overall findings and the final recommendation (Buy/Sell/Hold) with the strongest supporting reason.]
-***--
-### 1. Market Sentiment & Data Overview
-  * **Current Sentiment**: [e.g., "The Fear & Greed Index is at 75 (Extreme Greed)."]
-  * **Key Data Points**:
-      * **Current Price**: `[Price]`
-      * **Market Cap**: `[Market Cap]`
-      * **52-Week Range**: `[Low] - [High]`
-***--
-### 2. Financial Health & Report Analysis
-  * **Revenue & Profitability**: [Analysis of revenue, net income, EPS trends.]
-  * **Valuation**: [Analysis of P/E ratio, debt-to-equity ratio.]
-  * **Ownership Insights**: [Summary of institutional holdings and insider trades.]
-***--
-### 3. Technical Outlook
-  * **Overall Technical Summary**: [Concise summary of technical indicators.]
-  * **Moving Averages**: [Analysis of key moving averages.]
-  * **RSI**: `[RSI_Value]` - [Interpretation.]
-  * **MACD**: [Analysis of MACD signals.]
-***--
-### 4. Key News & Event Impact
-  * **Relevant News Summary**: [Summary of 2-3 most impactful news articles.]
-  * **Financial Implications**: [Explanation of how news affects the stock.]
-***--
-### 5. Recommendation
-Based on the comprehensive analysis above, the recommendation for **[TICKER]** is:
-
-**[BUY / SELL / HOLD]**
-
-**Rationale**:
-  * [Reason 1, integrating financial health and ownership data.]
-  * [Reason 2, integrating technical outlook.]
-  * [Reason 3, integrating market sentiment and news impact.]
-```
-
-***
-
 ### Here are the tools I have available
 
 * **Financial Data & Analysis:**
@@ -194,11 +157,10 @@ Based on the comprehensive analysis above, the recommendation for **[TICKER]** i
   * `get_financial_statements`: Get income, balance, or cash flow statements.
   * `get_institutional_holders`: List major institutional and mutual fund holders.
   * `get_earnings_history`: Provide a history of earnings reports.
-  * `get_earnings_calendar`: Retrieve the earnings calendar for tickers or date ranges.
+  * `get_and_display_earnings_by_range`: Fetches stock earnings data for a specified date range.
   * `get_insider_trades`: Show recent insider trading activity.
   * `get_options`: Fetch options contract data.
   * `compare_stocks`: Compare key metrics for two stocks.
-  * `get_sp500_tickers`: Get a list of all S&P 500 tickers.
 
 * **Technical Analysis:**
   * `calculate_technical_indicator`: Calculate various indicators (SMA, EMA, RSI, MACD, BBANDS).
@@ -218,7 +180,6 @@ Based on the comprehensive analysis above, the recommendation for **[TICKER]** i
 
 * **News & Web Content:**
   * `get_all_news`: Searches for financial news articles.
-  * `fetch_article_content`: Fetch the full content of a news article from a URL.
 
 * **Trading & Account Management:**
   * `get_account_info_tool`: Get your current account information.
