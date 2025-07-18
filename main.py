@@ -1,190 +1,62 @@
-import chainlit as cl
 import logging
 import os
-from pathlib import Path
-from datetime import datetime
-from typing import Literal, Optional
 
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, List, Literal, Optional
+from dotenv import load_dotenv
+
+from langsmith import Client as LangSmithClient
 from langchain.chat_models import init_chat_model
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain.schema import AIMessage
 from langchain.schema.runnable.config import RunnableConfig
 from langgraph.graph import StateGraph, END, START
 from langgraph.graph.message import MessagesState
+from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import ToolNode
 from langgraph.checkpoint.memory import MemorySaver
-from langsmith import Client as LangSmithClient
+from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
-import pytz
-from langchain.tools import tool
-from tzlocal import get_localzone
-from dotenv import load_dotenv
-
-# Import your tools and utilities
+from chainlit_local import chainlit_global as cl
+from tools.scheduler import scheduler_tools
 from tools.time import time_tools
 from tools.email import email_tools
 from utils.auth import authenticate_email_user
 from utils.graph import render_chart, should_render_chart
 from utils.prompt import system_template
 from utils.scheduler import TaskScheduler
-from utils.scheduler import ScheduledTask
+
 
 load_dotenv()
 
-
-# Global Task Scheduler
-task_scheduler: Optional[TaskScheduler] = None
+logger = logging.getLogger(__name__)
 
 
-@tool
-async def schedule_task_tool(
-    time_to_execute: str,
-    prompt: str,
-    timezone: str = "local",
-) -> str:
-    """
-    Schedule a task to be executed by the AI agent at a specific future time.
-
-    Args:
-        time_to_execute: Scheduled time in "YYYY-MM-DD HH:MM:SS" format
-        prompt: Main instruction for the agent to execute
-        timezone: Timezone for execution time (e.g., 'UTC', 'America/New_York')
-
-    Returns:
-        str: Status message about the scheduled task
-    """
-    global task_scheduler
-
-    if not task_scheduler:
-        return "Error: Task scheduler not initialized."
-
-    try:
-        # Parse timezone
-        if timezone == "local":
-            target_tz = pytz.timezone(str(get_localzone()))
-        else:
-            target_tz = pytz.timezone(timezone)
-
-        # Parse execution time
-        execution_dt_naive = datetime.strptime(time_to_execute, "%Y-%m-%d %H:%M:%S")
-        execution_dt = target_tz.localize(execution_dt_naive)
-        now_dt = datetime.now(target_tz)
-
-        if execution_dt < now_dt:
-            return f"Error: The time '{time_to_execute}' is in the past."
-
-        # Create task
-        task_id = f"task_{int(datetime.now().timestamp())}"
-        task = ScheduledTask(
-            task_id=task_id,
-            execution_time=execution_dt,
-            prompt=prompt,
-            timezone=timezone,
-        )
-
-        # Add to scheduler
-        if task_scheduler.add_task(task):
-            scheduled_time_str = execution_dt.strftime("%Y-%m-%d %H:%M:%S %Z")
-            return f"Task '{prompt[:30]}...' scheduled successfully for {scheduled_time_str}."
-        else:
-            return "Error: Failed to schedule task."
-
-    except (ValueError, pytz.UnknownTimeZoneError) as e:
-        return f"Error scheduling task: {e}"
-    except Exception as e:
-        logging.exception(f"Unexpected error in schedule_task_tool: {e}")
-        return "An unexpected error occurred while scheduling the task."
+DEFAULT_RECURSION_LIMIT = 100
+BASE_PATH = Path(__file__).resolve().parent
 
 
-@tool
-async def list_scheduled_tasks() -> str:
-    """
-    List all scheduled tasks with their status and execution times.
-
-    Returns:
-        str: Formatted list of all scheduled tasks
-    """
-    global task_scheduler
-
-    if not task_scheduler:
-        return "Error: Task scheduler not initialized."
-
-    tasks = task_scheduler.get_all_tasks()
-
-    if not tasks:
-        return "No scheduled tasks found."
-
-    result = "Scheduled Tasks:\n"
-    result += "=" * 50 + "\n"
-
-    for task in sorted(tasks, key=lambda x: x.execution_time):
-        status_emoji = {
-            "pending": "⏳",
-            "executing": "🔄",
-            "completed": "✅",
-            "failed": "❌",
-        }.get(task.status, "❓")
-
-        result += f"{status_emoji} Task ID: {task.task_id}\n"
-        result += f"   Prompt: {task.prompt[:50]}...\n"
-        result += (
-            f"   Scheduled: {task.execution_time.strftime('%Y-%m-%d %H:%M:%S %Z')}\n"
-        )
-        result += f"   Status: {task.status}\n"
-        if task.last_executed:
-            result += f"   Last executed: {task.last_executed.strftime('%Y-%m-%d %H:%M:%S')}\n"
-        result += f"   Execution count: {task.execution_count}\n"
-        result += "-" * 30 + "\n"
-
-    return result
-
-
-@tool
-async def cancel_scheduled_task(task_id: str) -> str:
-    """
-    Cancel a scheduled task by its ID.
-
-    Args:
-        task_id: The ID of the task to cancel
-
-    Returns:
-        str: Status message about the cancellation
-    """
-    global task_scheduler
-
-    if not task_scheduler:
-        return "Error: Task scheduler not initialized."
-
-    if task_scheduler.remove_task(task_id):
-        return f"Task {task_id} has been successfully cancelled."
-    else:
-        return f"Task {task_id} not found or could not be cancelled."
-
-
-# MCP Client Configuration
-mcp_client = MultiServerMCPClient(
-    {
+def create_mcp_client() -> MultiServerMCPClient:
+    """Initialize MCP client with all required servers."""
+    servers_config = {
         "yf_server": {
             "command": "python",
-            "args": [str(Path("mcp-server/yf_server/server.py").resolve())],
-            "env": {
-                "PYTHONPATH": str(Path(__file__).resolve().parent),
-            },
+            "args": [str(BASE_PATH / "mcp-server/yf_server/server.py")],
+            "env": {"PYTHONPATH": str(BASE_PATH)},
             "transport": "stdio",
         },
         "finance": {
             "command": "python",
-            "args": [str(Path("mcp-server/investor_agent/server.py").resolve())],
-            "env": {
-                "PYTHONPATH": str(Path(__file__).resolve().parent),
-            },
+            "args": [str(BASE_PATH / "mcp-server/investor_agent/server.py")],
+            "env": {"PYTHONPATH": str(BASE_PATH)},
             "transport": "stdio",
         },
         "news_agent": {
             "command": "python",
-            "args": [str(Path("mcp-server/news_agent/server.py").resolve())],
+            "args": [str(BASE_PATH / "mcp-server/news_agent/server.py")],
             "env": {
-                "PYTHONPATH": str(Path(__file__).resolve().parent),
+                "PYTHONPATH": str(BASE_PATH),
                 "NEWS_API_KEY": os.environ.get("NEWS_API_KEY", ""),
             },
             "transport": "stdio",
@@ -193,12 +65,12 @@ mcp_client = MultiServerMCPClient(
             "command": "uv",
             "args": [
                 "--directory",
-                str(Path("mcp-server/alpaca_agent").resolve()),
+                str(BASE_PATH / "mcp-server/alpaca_agent"),
                 "run",
                 "server.py",
             ],
             "env": {
-                "PYTHONPATH": str(Path(__file__).resolve().parent),
+                "PYTHONPATH": str(BASE_PATH),
                 "ALPACA_PAPER_API_KEY": os.environ.get("ALPACA_PAPER_API_KEY", ""),
                 "ALPACA_PAPER_API_SECRET": os.environ.get(
                     "ALPACA_PAPER_API_SECRET", ""
@@ -206,254 +78,315 @@ mcp_client = MultiServerMCPClient(
             },
             "transport": "stdio",
         },
-    }  # type: ignore
-)
+    }
+
+    return MultiServerMCPClient(servers_config)  # type: ignore
 
 
-class FinanceChatbot:
-    """Main chatbot class that handles LLM interactions and manages the conversation flow."""
+async def load_system_prompt() -> SystemMessage:
+    """Load system prompt from LangSmith or use default."""
+    try:
+        langsmith_api_key = os.getenv("LANGSMITH_API_KEY")
+        if not langsmith_api_key:
+            raise ValueError("LANGSMITH_API_KEY not set")
 
-    def __init__(self):
-        self.system_prompt = None
-        self.main_model = None
-        self.graph = None
-        self.memory = MemorySaver()
-        self.list_tools = []
-        self.tool_node = None
+        client = LangSmithClient(api_key=langsmith_api_key)
+        prompt_template = client.pull_prompt("finance-chatbot", include_model=True)
 
-    async def initialize_tools(self):
-        """Initialize MCP client, tools, model, and build the processing graph."""
-        await self._initialize_client_and_tools()
-        self._initialize_model()
-        self._build_graph()
+        prompt_str = prompt_template.steps[0].format(
+            date=datetime.now().strftime("%Y-%m-%d")
+        )
 
-    async def _initialize_client_and_tools(self):
-        """Initialize MCP client and aggregate all available tools."""
-        logging.info("Initializing MCP client and tools...")
+        param = prompt_template.steps[1].bound._get_ls_params()
+        model_name = prompt_template.steps[1].bound.model.split("/")[-1]
+
+        cl.user_session.set("model_name", model_name)
+        cl.user_session.set("model_provider", param["ls_provider"])
+
+        logger.info(f"Loaded system prompt from LangSmith with model: {model_name}")
+        return SystemMessage(content=prompt_str)
+
+    except Exception as e:
+        logger.warning(f"Could not pull from LangSmith: {e}. Using default prompt.")
+
+        cl.user_session.set("model_name", None)
+        cl.user_session.set("model_provider", None)
+
+        rendered = system_template.format(date=datetime.now().strftime("%Y-%m-%d"))
+        return SystemMessage(content=rendered)
+
+
+async def initialize_tools_and_model(
+    mcp_client: MultiServerMCPClient,
+) -> tuple[List, any]:
+    """Initialize all tools and the main model."""
+    try:
         mcp_tools = await mcp_client.get_tools()
-        self.list_tools = (
-            mcp_tools
-            + time_tools
-            + [schedule_task_tool, list_scheduled_tasks, cancel_scheduled_task]
-            + email_tools
+        all_tools = mcp_tools + time_tools + scheduler_tools + email_tools
+
+        model_name = os.getenv("MODEL_NAME", cl.user_session.get("model_name"))
+        model_provider = os.getenv(
+            "MODEL_PROVIDER", cl.user_session.get("model_provider")
         )
-        self.tool_node = ToolNode(tools=self.list_tools)
-        logging.info("Tools initialized successfully.")
 
-    def _initialize_model(self):
-        """Initialize the language model with system prompt from LangSmith or defaults."""
-        logging.info("Initializing model and system prompt...")
-        try:
-            langsmith_api_key = os.getenv("LANGSMITH_API_KEY")
-            if not langsmith_api_key:
-                raise ValueError("LANGSMITH_API_KEY not set.")
+        main_model = init_chat_model(model_name, model_provider=model_provider)
+        main_model = main_model.bind_tools(all_tools)
 
-            client = LangSmithClient(api_key=langsmith_api_key)
-            prompt_template = client.pull_prompt("finance-chatbot", include_model=True)
-            prompt_str = prompt_template.steps[0].format(
-                date=datetime.now().strftime("%Y-%m-%d")
-            )
-            param = prompt_template.steps[1].bound._get_ls_params()
-            model_name = prompt_template.steps[1].bound.model.split("/")[-1]
-            model_provider = param["ls_provider"]
-            self.system_prompt = SystemMessage(content=prompt_str)
+        logger.info(f"Initialized {len(all_tools)} tools and model: {model_name}")
+        return all_tools, main_model
 
-        except Exception as e:
-            logging.warning(
-                f"Could not pull from LangSmith: {e}. Using default prompt."
-            )
-            model_name = None
-            model_provider = None
-            rendered = system_template.format(date=datetime.now().strftime("%Y-%m-%d"))
-            self.system_prompt = SystemMessage(content=rendered)
+    except Exception as e:
+        logger.error(f"Failed to initialize tools and model: {e}")
+        raise
 
-        self.main_model = init_chat_model(
-            os.getenv("MODEL_NAME", model_name),
-            model_provider=os.getenv("MODEL_PROVIDER", model_provider),
-        ).bind_tools(self.list_tools)
-        logging.info("Model initialized successfully.")
 
-    def _build_graph(self):
-        """Build and compile the LangGraph for processing conversations."""
-        logging.info("Building state graph...")
-        builder = StateGraph(MessagesState)
+def call_main_model(state: MessagesState) -> Dict[str, List[BaseMessage]]:
+    """Node function to invoke the main language model."""
+    system_prompt = cl.user_session.get("system_prompt")
+    main_model = cl.user_session.get("main_model")
 
-        builder.add_node("agent", self.call_main_model)
-        builder.add_node("tools", self.tool_node)
-        builder.add_node("render_chart", render_chart)
-        builder.add_node("should_render_chart_decision", lambda state: state)
+    if not system_prompt or not main_model:
+        raise ValueError("System prompt or main model not initialized")
 
-        builder.add_edge(START, "agent")
-        builder.add_conditional_edges(
-            "agent", self.should_use_tools, {"tools": "tools", "END": END}
-        )
-        builder.add_conditional_edges(
-            "tools",
-            self.after_tools,
-            {"agent": "agent", "render_or_end": "should_render_chart_decision"},
-        )
-        builder.add_conditional_edges(
-            "should_render_chart_decision",
-            should_render_chart,
-            {"render_chart": "render_chart", "agent": "agent"},
-        )
-        builder.add_edge("render_chart", "agent")
+    messages = [system_prompt] + state["messages"]
+    response = main_model.invoke(messages)
+    return {"messages": [response]}
 
-        self.graph = builder.compile(checkpointer=self.memory)
-        logging.info("Graph built and compiled successfully.")
 
-    def call_main_model(self, state: MessagesState):
-        """Node function to invoke the main language model."""
-        messages = [self.system_prompt] + state["messages"]
-        response = self.main_model.invoke(messages)
-        return {"messages": [response]}
+def should_use_tools(state: MessagesState) -> Literal["tools", "END"]:
+    """Route to tools if model made tool calls, otherwise end."""
+    messages = state["messages"]
+    if not messages:
+        return "END"
 
-    def should_use_tools(self, state: MessagesState) -> Literal["tools", "END"]:
-        """Determine whether to use tools or end the conversation."""
-        last_message = state["messages"][-1]
-        return "tools" if getattr(last_message, "tool_calls", []) else "END"
+    last_message = messages[-1]
 
-    def after_tools(self, state: MessagesState) -> Literal["agent", "render_or_end"]:
-        """Determine next action after tool execution."""
-        last_message = state["messages"][-1]
-        return "render_or_end" if last_message.type == "tool" else "agent"
-
-    async def process_message(
-        self, message_content: str, user_id: str, session_id: str
+    if (
+        hasattr(last_message, "tool_calls")
+        and isinstance(last_message, AIMessage)
+        and last_message.tool_calls
     ):
-        """Process a user message through the chatbot system."""
-        thread_id = f"{user_id}_{session_id}"
-
-        config = {
-            "configurable": {"thread_id": thread_id},
-            "recursion_limit": 100,
-            "user_id": user_id,
-        }
-
-        cb = cl.LangchainCallbackHandler(stream_final_answer=True)
-
-        async for message, metadata in self.graph.astream(
-            {"messages": [HumanMessage(content=message_content)]},
-            stream_mode="messages",
-            config=RunnableConfig(callbacks=[cb], **config),
-        ):
-            if (
-                message.content
-                and not isinstance(message, HumanMessage)
-                and not metadata["langgraph_node"] == "tools"
-            ):
-                yield message.content
+        return "tools"
+    return "END"
 
 
-# Global Instances
-app = FinanceChatbot()
+def after_tools(state: MessagesState) -> Literal["agent", "render_or_end"]:
+    """Determine next action after tool execution."""
+    messages = state["messages"]
+    if not messages:
+        return "agent"
+
+    last_message = messages[-1]
+    return "render_or_end" if last_message.type == "tool" else "agent"
 
 
-# Chainlit Event Handlers
+def build_graph(tool_node: ToolNode, memory: MemorySaver) -> CompiledStateGraph:
+    """Build and compile the state graph."""
+    builder = StateGraph(MessagesState)
+
+    builder.add_node("agent", call_main_model)
+    builder.add_node("tools", tool_node)
+    builder.add_node("render_chart", render_chart)
+    builder.add_node("should_render_chart_decision", lambda state: state)
+
+    builder.add_edge(START, "agent")
+    builder.add_conditional_edges(
+        "agent", should_use_tools, {"tools": "tools", "END": END}
+    )
+    builder.add_conditional_edges(
+        "tools",
+        after_tools,
+        {"agent": "agent", "render_or_end": "should_render_chart_decision"},
+    )
+    builder.add_conditional_edges(
+        "should_render_chart_decision",
+        should_render_chart,
+        {"render_chart": "render_chart", "agent": "agent"},
+    )
+    builder.add_edge("render_chart", "agent")
+
+    return builder.compile(checkpointer=memory)
+
+
+def initialize_scheduler(graph: CompiledStateGraph) -> None:
+    """Initialize and start the task scheduler."""
+    try:
+        task_scheduler = TaskScheduler(graph)
+        cl.user_session.set("task_scheduler", task_scheduler)
+        task_scheduler.start()
+        logger.info("Task scheduler started successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize scheduler: {e}")
+        raise
+
+
+def get_thread_config(user: cl.User) -> Dict:
+    """Generate thread configuration for a user."""
+    thread_id = f"{user.identifier}_{cl.context.session.id}"
+    return {
+        "configurable": {"thread_id": thread_id},
+        "recursion_limit": DEFAULT_RECURSION_LIMIT,
+        "user_id": user.identifier,
+    }
+
+
+mcp_client = create_mcp_client()
+
+
 @cl.on_app_startup
 def on_app_startup():
-    """Initialize logging and start the task scheduler."""
-
-    logging.info("App is starting up...")
-
-
-def initialize_scheduler():
-    """Initialize and start the task scheduler."""
-    global task_scheduler
-    if task_scheduler is None:
-        task_scheduler = TaskScheduler(app)
-        task_scheduler.start()
-        logging.info("Task scheduler started")
+    """Initialize logging and application startup."""
+    logger.info("Financial chatbot is starting up...")
 
 
 @cl.on_stop
 def on_stop():
     """Gracefully shutdown services when the app stops."""
-    logging.info("Application stopping. Shutting down services.")
-    global task_scheduler
-    if task_scheduler:
-        task_scheduler.stop()
+    logger.info("Application stopping. Shutting down services...")
+
+    scheduler = cl.user_session.get("task_scheduler")
+    if scheduler:
+        try:
+            scheduler.stop()
+            logger.info("Task scheduler stopped successfully")
+        except Exception as e:
+            logger.error(f"Error stopping scheduler: {e}")
 
 
 @cl.password_auth_callback
-async def auth_callback(username: str, password: str):
+async def auth_callback(username: str, password: str) -> Optional[cl.User]:
     """Handle user authentication."""
-    is_logged_in = await authenticate_email_user(email=username, password=password)
-    if is_logged_in:
-        return cl.User(identifier=username, metadata={"provider": "credentials"})
-    return None
+    try:
+        is_logged_in = await authenticate_email_user(email=username, password=password)
+        if is_logged_in:
+            logger.info(f"User {username} authenticated successfully")
+            return cl.User(identifier=username, metadata={"provider": "credentials"})
+        logger.warning(f"Authentication failed for user: {username}")
+        return None
+    except Exception as e:
+        logger.error(f"Authentication error for {username}: {e}")
+        return None
 
 
 @cl.on_chat_start
 async def on_chat_start():
     """Initialize a new chat session."""
     user = cl.user_session.get("user")
-
-    initialize_scheduler()
-    await app.initialize_tools()
-
     if not user:
-        await cl.Message(content="Authentication required. Please log in.").send()
+        await cl.Message(content="🔐 Authentication required. Please log in.").send()
         return
+
+    try:
+        logger.info(f"Starting chat session for user: {user.identifier}")
+
+        system_prompt = await load_system_prompt()
+        cl.user_session.set("system_prompt", system_prompt)
+
+        memory = MemorySaver()
+        cl.user_session.set("memory", memory)
+
+        all_tools, main_model = await initialize_tools_and_model(mcp_client)
+        tool_node = ToolNode(tools=all_tools)
+
+        cl.user_session.set("tool_node", tool_node)
+        cl.user_session.set("main_model", main_model)
+
+        logger.info("Building state graph...")
+        graph = build_graph(tool_node, memory)
+        cl.user_session.set("graph", graph)
+        logger.info("Graph built and compiled successfully")
+
+        initialize_scheduler(graph)
+
+    except Exception as e:
+        logger.error(f"Failed to start chat session for {user.identifier}: {e}")
+        await cl.Message(
+            content="❌ Sorry, there was an error initializing your session. Please try again."
+        ).send()
 
 
 @cl.on_message
 async def on_message(msg: cl.Message):
     """Handle incoming user messages."""
     user = cl.user_session.get("user")
-    if not user:
-        await cl.Message(content="Please log in to continue chatting.").send()
+    graph = cl.user_session.get("graph")
+
+    if not user or not isinstance(user, cl.User):
+        await cl.Message(content="🔐 Please log in to continue chatting.").send()
         return
 
-    final_answer = cl.Message(content="")
+    if not isinstance(graph, CompiledStateGraph):
+        await cl.Message(
+            content="❌ System not properly initialized. Please refresh and try again."
+        ).send()
+        return
 
-    async for content in app.process_message(
-        msg.content, user.identifier, cl.context.session.id
-    ):
-        await final_answer.stream_token(content)
+    try:
+        logger.info(f"Processing message from {user.identifier}: {msg.content[:50]}...")
 
-    await final_answer.send()
+        config = get_thread_config(user)
+        cb = cl.LangchainCallbackHandler(stream_final_answer=True)
+        final_answer = cl.Message(content="")
+
+        async for message, metadata in graph.astream(
+            {"messages": [HumanMessage(content=msg.content)]},
+            stream_mode="messages",
+            config=RunnableConfig(callbacks=[cb], **config),
+        ):
+            if (
+                not isinstance(message, HumanMessage)
+                and metadata.get("langgraph_node") != "tools"  # type: ignore
+            ):
+                await final_answer.stream_token(message.content)
+
+        await final_answer.send()
+
+    except Exception as e:
+        logger.error(f"Error processing message from {user.identifier}: {e}")
+        await cl.Message(
+            content="❌ Sorry, I encountered an error processing your request. Please try again."
+        ).send()
 
 
 @cl.set_starters
-async def set_starters(user: Optional[cl.User]):
+async def set_starters(user: Optional[cl.User]) -> List[cl.Starter]:
     """Define starter suggestions for new chat sessions."""
     return [
         cl.Starter(
             label="📈 Apple Investment Analysis",
-            message="Provide a full investment analysis of Apple (AAPL).",
+            message="Provide a comprehensive investment analysis of Apple (AAPL) including financials, technical indicators, and market outlook.",
         ),
         cl.Starter(
             label="📰 Semiconductor Industry News",
-            message="Show me the latest news impacting the semiconductor industry.",
+            message="Show me the latest news and trends impacting the semiconductor industry and related stocks.",
         ),
         cl.Starter(
             label="⏰ Schedule Market Summary",
-            message="Schedule a market summary to be sent to guest-agrix@yopmail.com in 5 minutes.",
+            message="Schedule a daily market summary to be sent to my email in 5 minutes.",
         ),
         cl.Starter(
             label="💵 Buy TSLA Stock",
-            message="Buy 10 shares of TSLA.",
+            message="Execute a buy order for 10 shares of TSLA at current market price.",
         ),
         cl.Starter(
             label="💰 Portfolio Summary",
-            message="What is my current portfolio summary?",
+            message="Show me my current portfolio performance, holdings, and P&L summary.",
         ),
         cl.Starter(
-            label="📋 NVDA Call Options",
-            message="Show me call options for NVDA expiring on 2025-01-17.",
+            label="📋 NVDA Options Analysis",
+            message="Analyze call options for NVDA expiring on 2025-01-17 with strike prices near current market.",
         ),
         cl.Starter(
-            label="📊 Compare GOOGL and MSFT",
-            message="Compare the stock performance of GOOGL and MSFT.",
+            label="📊 Tech Stock Comparison",
+            message="Compare the financial performance and valuation metrics of GOOGL vs MSFT.",
         ),
         cl.Starter(
-            label="🗓️ List Scheduled Tasks",
-            message="Show me all my scheduled tasks.",
+            label="🗓️ Task Management",
+            message="Show me all my scheduled tasks and their current status.",
         ),
         cl.Starter(
-            label="🤖 What Can You Do?",
-            message="List all your financial and analytical capabilities in detail.",
+            label="🤖 System Capabilities",
+            message="What are your complete financial analysis and trading capabilities?",
         ),
     ]
 

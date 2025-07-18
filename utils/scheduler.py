@@ -30,9 +30,9 @@ class ScheduledTask:
 class TaskScheduler:
     """In-memory task scheduler that manages scheduled LLM executions."""
 
-    def __init__(self, chatbot_instance):
+    def __init__(self, graph):
         self.tasks: Dict[str, ScheduledTask] = {}
-        self.chatbot = chatbot_instance
+        self.graph = graph
         self.running = False
         self.scheduler_thread: Optional[Thread] = None
         self.lock = threading.Lock()
@@ -156,7 +156,7 @@ class TaskScheduler:
         try:
             logging.info(f"Running LLM prompt for task {task_id}: {prompt[:100]}...")
 
-            if not self.chatbot.graph:
+            if not self.graph:
                 logging.error(f"Chatbot graph not initialized for task {task_id}")
                 return
 
@@ -183,7 +183,7 @@ class TaskScheduler:
         """Execute LLM prompt asynchronously."""
         try:
             result_messages = []
-            async for message, metadata in self.chatbot.graph.astream(
+            async for message, metadata in self.graph.astream(
                 {"messages": messages},
                 stream_mode="messages",
                 config=RunnableConfig(**config),
@@ -202,3 +202,6 @@ class TaskScheduler:
         except Exception as e:
             logging.error(f"Error in async LLM execution for task {task_id}: {e}")
             raise
+
+
+task_scheduler: Optional[TaskScheduler] = None
