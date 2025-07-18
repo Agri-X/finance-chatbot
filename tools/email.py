@@ -8,7 +8,7 @@ from markdown.extensions.tables import TableExtension
 
 
 @tool
-def send_markdown_email(
+async def send_markdown_email(
     recipient_email: str,
     subject: str,
     markdown_content: str,
