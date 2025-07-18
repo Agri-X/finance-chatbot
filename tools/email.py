@@ -2,8 +2,9 @@ from os import getenv
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-import markdown
 from langchain.tools import tool
+from markdown import markdown
+from markdown.extensions.tables import TableExtension
 
 
 @tool
@@ -42,7 +43,7 @@ def send_markdown_email(
         ):
             raise Exception("Config invalid")
 
-        html_content = markdown.markdown(markdown_content)
+        html_content = markdown(markdown_content, extensions=[TableExtension()])
 
         msg = MIMEMultipart("alternative")
         mail_to = recipient_email
