@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 
@@ -7,6 +8,7 @@ from typing import Dict, List, Literal, Optional
 from dotenv import load_dotenv
 
 from langsmith import Client as LangSmithClient
+
 from langchain.chat_models import init_chat_model
 from langchain.schema import AIMessage
 from langchain.schema.runnable.config import RunnableConfig
@@ -26,7 +28,6 @@ from utils.auth import authenticate_email_user
 from utils.graph import render_chart, should_render_chart
 from utils.prompt import system_template
 from utils.scheduler import TaskScheduler
-
 
 load_dotenv()
 
@@ -116,12 +117,9 @@ async def load_system_prompt() -> SystemMessage:
         return SystemMessage(content=rendered)
 
 
-async def initialize_tools_and_model(
-    mcp_client: MultiServerMCPClient,
-) -> tuple[List, any]:
+async def initialize_tools_and_model(mcp_client: MultiServerMCPClient):
     """Initialize all tools and the main model."""
     try:
-        mcp_tools = await mcp_client.get_tools()
         all_tools = mcp_tools + time_tools + scheduler_tools + email_tools
 
         model_name = os.getenv("MODEL_NAME", cl.user_session.get("model_name"))
@@ -129,7 +127,7 @@ async def initialize_tools_and_model(
             "MODEL_PROVIDER", cl.user_session.get("model_provider")
         )
 
-        main_model = init_chat_model(model_name, model_provider=model_provider)
+        main_model = init_chat_model(f"{model_provider}:{model_name}")
         main_model = main_model.bind_tools(all_tools)
 
         logger.info(f"Initialized {len(all_tools)} tools and model: {model_name}")
@@ -231,6 +229,7 @@ def get_thread_config(user: cl.User) -> Dict:
 
 
 mcp_client = create_mcp_client()
+mcp_tools = asyncio.run(mcp_client.get_tools())
 
 
 @cl.on_app_startup
@@ -322,7 +321,7 @@ async def on_message(msg: cl.Message):
         return
 
     try:
-        logger.info(f"Processing message from {user.identifier}: {msg.content[:50]}...")
+        logger.info(f"Processing message from {user.identifier}: {msg.content}...")
 
         config = get_thread_config(user)
         cb = cl.LangchainCallbackHandler(stream_final_answer=True)

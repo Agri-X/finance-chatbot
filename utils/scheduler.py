@@ -2,15 +2,20 @@ from dataclasses import dataclass, field
 from langchain.schema.runnable.config import RunnableConfig
 from langchain_core.messages import HumanMessage
 
-
 import asyncio
 import concurrent.futures
 import logging
 import threading
 import time
+
+from chainlit_local import chainlit_global as cl
 from datetime import datetime
 from threading import Thread
-from typing import Dict, List, Optional
+from typing import List, Optional
+
+global scheduled_tasks
+
+from tasks_local import scheduled_tasks
 
 
 @dataclass
@@ -31,13 +36,13 @@ class TaskScheduler:
     """In-memory task scheduler that manages scheduled LLM executions."""
 
     def __init__(self, graph):
-        self.tasks: Dict[str, ScheduledTask] = {}
+        # scheduled_tasks: Dict[str, Dict[str, ScheduledTask]] = {}
         self.graph = graph
         self.running = False
         self.scheduler_thread: Optional[Thread] = None
         self.lock = threading.Lock()
         self.loop = None
-        self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=5)
+        self.executor = concurrent.futures.ThreadPoolExecutor()
 
     def start(self):
         """Start the task scheduler thread."""
@@ -63,8 +68,19 @@ class TaskScheduler:
 
     def add_task(self, task: ScheduledTask) -> bool:
         """Add a new task to the scheduler."""
+        if not cl:
+            return False
+
         with self.lock:
-            self.tasks[task.task_id] = task
+            user = cl.user_session.get("user")
+
+            if not isinstance(user, cl.User):
+                return False
+
+            if not user.identifier in scheduled_tasks:
+                scheduled_tasks[user.identifier] = {}
+
+            scheduled_tasks[user.identifier][task.task_id] = task
             logging.info(
                 f"Added task {task.task_id} scheduled for {task.execution_time}"
             )
@@ -72,22 +88,56 @@ class TaskScheduler:
 
     def remove_task(self, task_id: str) -> bool:
         """Remove a task from the scheduler."""
+        if not cl:
+            return False
+
         with self.lock:
-            if task_id in self.tasks:
-                del self.tasks[task_id]
+            user = cl.user_session.get("user")
+
+            if not isinstance(user, cl.User):
+                return False
+
+            if not user.identifier in scheduled_tasks:
+                scheduled_tasks[user.identifier] = {}
+
+            if task_id in scheduled_tasks[user.identifier]:
+                del scheduled_tasks[user.identifier][task_id]
                 logging.info(f"Removed task {task_id}")
                 return True
             return False
 
     def get_pending_tasks(self) -> List[ScheduledTask]:
         """Get all pending tasks."""
+        if not cl:
+            return []
+
         with self.lock:
-            return [task for task in self.tasks.values() if task.status == "pending"]
+            user = cl.user_session.get("user")
+
+            if not isinstance(user, cl.User):
+                return []
+
+            if not user.identifier in scheduled_tasks:
+                scheduled_tasks[user.identifier] = {}
+
+            return [
+                task
+                for task in scheduled_tasks[user.identifier].values()
+                if task.status == "pending"
+            ]
 
     def get_all_tasks(self) -> List[ScheduledTask]:
         """Get all tasks."""
         with self.lock:
-            return list(self.tasks.values())
+            user = cl.user_session.get("user")
+
+            if not isinstance(user, cl.User):
+                return []
+
+            if not user.identifier in scheduled_tasks:
+                scheduled_tasks[user.identifier] = {}
+
+            return list(scheduled_tasks[user.identifier].values())
 
     def _run_scheduler(self):
         """Main scheduler loop that runs in a separate thread."""
@@ -97,7 +147,13 @@ class TaskScheduler:
                 tasks_to_execute = []
 
                 with self.lock:
-                    for task in list(self.tasks.values()):
+                    all_tasks = []
+
+                    for email, tasks_by_id in scheduled_tasks.items():
+                        for task_object in tasks_by_id.values():
+                            all_tasks.append(task_object)
+
+                    for task in list(all_tasks):
                         if task.status == "pending":
                             task_time = task.execution_time
                             if task_time.tzinfo is not None:

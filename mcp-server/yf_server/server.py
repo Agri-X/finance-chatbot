@@ -6,9 +6,9 @@ import pandas as pd
 from tabulate import tabulate
 import yfinance as yf
 from mcp.server.fastmcp import FastMCP
-from typing import List, Optional
+from typing import List, Optional, Union
+from requests import get
 
-from earnings import Calendar
 from utils.technical_indicator import TechnicalIndicators
 
 
@@ -980,6 +980,8 @@ async def generate_chart(ticker, period="5mo", interval="1d"):
     """
     df = yf.download(ticker, period=period, interval=interval)
 
+    assert isinstance(df, pd.DataFrame)
+
     if df.empty:
         return {
             "summary": f"❌ No data found for {ticker.upper()}. Please check the ticker symbol.",
@@ -1111,8 +1113,26 @@ def human_format(num):
     return f"{num:.2f}"  # Format smaller numbers to two decimal places
 
 
+def getEarnings(day: Union[str, datetime, date]) -> dict:
+    MAIN_URL = "https://www.earningswhispers.com"
+    if isinstance(day, str):
+        day = date.fromisoformat(day)
+    elif isinstance(day, datetime):
+        day = day.date()
+
+    assert type(day) == datetime.date
+
+    if day.weekday() in [5, 6]:
+        raise Exception("weekend")
+    r = get(
+        url=f"{MAIN_URL}/api/caldata/{day.isoformat().replace('-', '')}",
+        headers={"Referer": f"{MAIN_URL}"},
+    )
+    return r.json()
+
+
 @mcp.tool()
-def get_and_display_earnings_by_range(start_date: date, end_date: date):
+async def get_and_display_earnings_by_range(start_date: date, end_date: date):
     """
     Fetches stock earnings data for a specified date range.
 
@@ -1127,7 +1147,6 @@ def get_and_display_earnings_by_range(start_date: date, end_date: date):
     if start_date > end_date:
         return "Error: start_date cannot be after end_date."
 
-    c = Calendar()  # Instantiate your Calendar class
     all_earnings: List[StockData] = []
 
     current_date = start_date
@@ -1141,7 +1160,7 @@ def get_and_display_earnings_by_range(start_date: date, end_date: date):
             f"\n--- Attempting to fetch earnings for {current_date.strftime('%Y-%m-%d')} ---"
         )
         try:
-            raw_earnings_data = c.getEarningsByDay(current_date)
+            raw_earnings_data = getEarnings(current_date)
 
             for item in raw_earnings_data:
                 filtered_item = {
