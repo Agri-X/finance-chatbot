@@ -253,7 +253,7 @@ def get_batched_option_snapshots(
     option_data_client: OptionHistoricalDataClient,
     symbols: List[str],
 ):
-    batch_size = 1000
+    batch_size = 100
     all_snapshots = {}
 
     for i in range(0, len(symbols), batch_size):
