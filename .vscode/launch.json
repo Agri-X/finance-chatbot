@@ -11,7 +11,8 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "args": [
-                "-Xfrozen_modules=off"
+                "-Xfrozen_modules=off",
+                "-w"
             ]
         }
     ]

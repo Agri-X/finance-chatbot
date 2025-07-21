@@ -8,7 +8,6 @@ import logging
 import threading
 import time
 
-from chainlit_local import chainlit_global as cl
 from datetime import datetime
 from threading import Thread
 from typing import List, Optional
@@ -66,78 +65,52 @@ class TaskScheduler:
             self.executor.shutdown(wait=True)
         logging.info("Task scheduler stopped")
 
-    def add_task(self, task: ScheduledTask) -> bool:
+    def add_task(self, task: ScheduledTask, user_id: str) -> bool:
         """Add a new task to the scheduler."""
-        if not cl:
-            return False
-
         with self.lock:
-            user = cl.user_session.get("user")
 
-            if not isinstance(user, cl.User):
-                return False
+            if not user_id in scheduled_tasks:
+                scheduled_tasks[user_id] = {}
 
-            if not user.identifier in scheduled_tasks:
-                scheduled_tasks[user.identifier] = {}
-
-            scheduled_tasks[user.identifier][task.task_id] = task
+            scheduled_tasks[user_id][task.task_id] = task
             logging.info(
                 f"Added task {task.task_id} scheduled for {task.execution_time}"
             )
             return True
 
-    def remove_task(self, task_id: str) -> bool:
+    def remove_task(self, task_id: str, user_id: str) -> bool:
         """Remove a task from the scheduler."""
-        if not cl:
-            return False
-
         with self.lock:
-            user = cl.user_session.get("user")
+            if not user_id in scheduled_tasks:
+                scheduled_tasks[user_id] = {}
 
-            if not isinstance(user, cl.User):
-                return False
-
-            if not user.identifier in scheduled_tasks:
-                scheduled_tasks[user.identifier] = {}
-
-            if task_id in scheduled_tasks[user.identifier]:
-                del scheduled_tasks[user.identifier][task_id]
+            if task_id in scheduled_tasks[user_id]:
+                del scheduled_tasks[user_id][task_id]
                 logging.info(f"Removed task {task_id}")
                 return True
             return False
 
-    def get_pending_tasks(self) -> List[ScheduledTask]:
+    def get_pending_tasks(self, user_id: str) -> List[ScheduledTask]:
         """Get all pending tasks."""
-        if not cl:
-            return []
 
         with self.lock:
-            user = cl.user_session.get("user")
 
-            if not isinstance(user, cl.User):
-                return []
-
-            if not user.identifier in scheduled_tasks:
-                scheduled_tasks[user.identifier] = {}
+            if not user_id in scheduled_tasks:
+                scheduled_tasks[user_id] = {}
 
             return [
                 task
-                for task in scheduled_tasks[user.identifier].values()
+                for task in scheduled_tasks[user_id].values()
                 if task.status == "pending"
             ]
 
-    def get_all_tasks(self) -> List[ScheduledTask]:
+    def get_all_tasks(self, user_id: str) -> List[ScheduledTask]:
         """Get all tasks."""
         with self.lock:
-            user = cl.user_session.get("user")
+            if not user_id in scheduled_tasks:
+                scheduled_tasks[user_id] = {}
 
-            if not isinstance(user, cl.User):
-                return []
-
-            if not user.identifier in scheduled_tasks:
-                scheduled_tasks[user.identifier] = {}
-
-            return list(scheduled_tasks[user.identifier].values())
+            return list(scheduled_tasks[user_id].values())
 
     def _run_scheduler(self):
         """Main scheduler loop that runs in a separate thread."""
@@ -171,7 +144,7 @@ class TaskScheduler:
                 for task in tasks_to_execute:
                     self._execute_task(task)
 
-                time.sleep(1)  # Check every second
+                time.sleep(1)
 
             except Exception as e:
                 logging.error(f"Error in scheduler loop: {e}")

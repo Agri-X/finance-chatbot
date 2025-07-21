@@ -3,9 +3,10 @@ from datetime import datetime
 
 import pytz
 from langchain.tools import tool
+from tabulate import tabulate
 from tzlocal import get_localzone
 
-from utils.scheduler import ScheduledTask
+from utils.scheduler import ScheduledTask, TaskScheduler
 
 from chainlit_local import chainlit_global as cl
 
@@ -29,6 +30,10 @@ async def schedule_task_tool(
     """
 
     task_scheduler = cl.user_session.get("task_scheduler")
+    assert isinstance(task_scheduler, TaskScheduler)
+
+    user = cl.user_session.get("user")
+    assert isinstance(user, cl.User)
 
     if not task_scheduler:
         return "Error: Task scheduler not initialized."
@@ -58,9 +63,9 @@ async def schedule_task_tool(
         )
 
         # Add to scheduler
-        if task_scheduler.add_task(task):
+        if task_scheduler.add_task(task, user.identifier):
             scheduled_time_str = execution_dt.strftime("%Y-%m-%d %H:%M:%S %Z")
-            return f"Task '{prompt[:30]}...' scheduled successfully for {scheduled_time_str}."
+            return f"Task '{prompt}' scheduled successfully for {scheduled_time_str}."
         else:
             return "Error: Failed to schedule task."
 
@@ -71,7 +76,6 @@ async def schedule_task_tool(
         return "An unexpected error occurred while scheduling the task."
 
 
-@tool
 async def list_scheduled_tasks() -> str:
     """
     List all scheduled tasks with their status and execution times.
@@ -81,17 +85,29 @@ async def list_scheduled_tasks() -> str:
     """
 
     task_scheduler = cl.user_session.get("task_scheduler")
+    assert isinstance(task_scheduler, TaskScheduler)
+
+    user = cl.user_session.get("user")
+    assert isinstance(user, cl.User)
 
     if not task_scheduler:
         return "Error: Task scheduler not initialized."
 
-    tasks = task_scheduler.get_all_tasks()
+    tasks = task_scheduler.get_all_tasks(user.identifier)
 
     if not tasks:
         return "No scheduled tasks found."
 
-    result = "Scheduled Tasks:\n"
-    result += "=" * 50 + "\n"
+    # Prepare data for tabulate
+    headers = [
+        "Status",
+        "Task ID",
+        "Prompt",
+        "Scheduled",
+        "Last Executed",
+        "Exec Count",
+    ]
+    table_data = []
 
     for task in sorted(tasks, key=lambda x: x.execution_time):
         status_emoji = {
@@ -101,16 +117,27 @@ async def list_scheduled_tasks() -> str:
             "failed": "❌",
         }.get(task.status, "❓")
 
-        result += f"{status_emoji} Task ID: {task.task_id}\n"
-        result += f"   Prompt: {task.prompt[:50]}...\n"
-        result += (
-            f"   Scheduled: {task.execution_time.strftime('%Y-%m-%d %H:%M:%S %Z')}\n"
+        scheduled_time = task.execution_time.strftime("%Y-%m-%d %H:%M:%S %Z")
+        last_executed_time = (
+            task.last_executed.strftime("%Y-%m-%d %H:%M:%S")
+            if task.last_executed
+            else "N/A"
         )
-        result += f"   Status: {task.status}\n"
-        if task.last_executed:
-            result += f"   Last executed: {task.last_executed.strftime('%Y-%m-%d %H:%M:%S')}\n"
-        result += f"   Execution count: {task.execution_count}\n"
-        result += "-" * 30 + "\n"
+
+        table_data.append(
+            [
+                f"{status_emoji} {task.status}",
+                task.task_id,
+                f"{task.prompt[:50]}...",
+                scheduled_time,
+                last_executed_time,
+                task.execution_count,
+            ]
+        )
+
+    # Generate the table
+    result = "Scheduled Tasks:\n\n"
+    result += tabulate(table_data, headers=headers, tablefmt="github")
 
     return result
 
@@ -128,11 +155,15 @@ async def cancel_scheduled_task(task_id: str) -> str:
     """
 
     task_scheduler = cl.user_session.get("task_scheduler")
+    assert isinstance(task_scheduler, TaskScheduler)
+
+    user = cl.user_session.get("user")
+    assert isinstance(user, cl.User)
 
     if not task_scheduler:
         return "Error: Task scheduler not initialized."
 
-    if task_scheduler.remove_task(task_id):
+    if task_scheduler.remove_task(task_id, user.identifier):
         return f"Task {task_id} has been successfully cancelled."
     else:
         return f"Task {task_id} not found or could not be cancelled."
