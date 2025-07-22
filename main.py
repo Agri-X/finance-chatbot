@@ -18,6 +18,7 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 
 from chainlit_local import chainlit_global as cl
 
+from tools.economic_calendar import scrape_trading_economics_calendar
 from tools.time import time_tools
 from tools.email import email_tools
 from tools.scheduler import scheduler_tools
@@ -129,7 +130,13 @@ async def initialize_tools_and_model():
 
         mcp_tools = await mcp_client.get_tools()
 
-        all_tools = mcp_tools + time_tools + scheduler_tools + email_tools
+        all_tools = (
+            mcp_tools
+            + time_tools
+            + scheduler_tools
+            + email_tools
+            + [scrape_trading_economics_calendar]
+        )
 
         main_model = create_react_agent(
             model, all_tools, prompt=prompt, checkpointer=memory
