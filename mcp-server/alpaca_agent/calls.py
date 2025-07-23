@@ -1,6 +1,7 @@
 import logging
 from typing import List, Optional, Union
 from datetime import datetime, timedelta
+from alpaca.trading import OrderStatus
 from alpaca.trading.requests import GetOptionContractsRequest
 
 from alpaca.trading.client import TradingClient
@@ -38,7 +39,6 @@ from models import (
     AlpacaQuote,
     AlpacaBar,
     AlpacaOrderType,
-    AlpacaOrderStatus,
 )
 
 
@@ -112,7 +112,7 @@ def place_order(client: TradingClient, order_details: AlpacaOrderRequest):
 
 def get_orders(
     client: TradingClient,
-    status: Optional[AlpacaOrderStatus] = None,
+    status: Optional[OrderStatus] = None,
     limit: int = 50,
     after: Optional[datetime] = None,
     until: Optional[datetime] = None,
