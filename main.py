@@ -7,6 +7,7 @@ from typing import Dict, List, Optional
 from dotenv import load_dotenv
 
 from langchain.chat_models import init_chat_model
+from langchain.tools import BaseTool
 from langsmith import Client as LangSmithClient
 
 from langchain.schema.runnable.config import RunnableConfig
@@ -124,19 +125,11 @@ async def initialize_tools_and_model():
         model_name = os.getenv("MODEL_NAME", session_model_name)
         model_provider = os.getenv("MODEL_PROVIDER", session_model_provider)
 
+        global all_tools
+
         memory = MemorySaver()
 
         model = init_chat_model(f"{model_provider}:{model_name}")
-
-        mcp_tools = await mcp_client.get_tools()
-
-        all_tools = (
-            mcp_tools
-            + time_tools
-            + scheduler_tools
-            + email_tools
-            + [scrape_trading_economics_calendar]
-        )
 
         main_model = create_react_agent(
             model, all_tools, prompt=prompt, checkpointer=memory
@@ -179,9 +172,25 @@ async def on_app_startup():
     """Initialize logging and application startup."""
     logger.info("Financial chatbot is starting up...")
 
+    mcp_tools = await mcp_client.get_tools()
+
+    global all_tools
+
+    all_tools = (
+        mcp_tools
+        + time_tools
+        + scheduler_tools
+        + email_tools
+        + [scrape_trading_economics_calendar]
+    )
+
+    logger.info(f"Populated {len(all_tools)} tools.")
+
     main_model, model = await initialize_tools_and_model()
 
     initialize_scheduler(main_model)
+
+    logger.info("Financial chatbot is started")
 
 
 @cl.on_stop
@@ -217,6 +226,8 @@ async def auth_callback(username: str, password: str) -> Optional[cl.User]:
 @cl.on_chat_start
 async def on_chat_start():
     """Initialize a new chat session."""
+    logger.info("Starting Chat")
+
     user = cl.user_session.get("user")
     global task_scheduler
 
@@ -241,6 +252,7 @@ async def on_chat_start():
         await cl.Message(
             content="❌ Sorry, there was an error initializing your session. Please try again."
         ).send()
+    logger.info("Starting Chat Finished")
 
 
 @cl.on_message
