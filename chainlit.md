@@ -1,5 +1,17 @@
 # Advanced AI Investment Analyst and Trading Executive: README
 
+## Changelog: Version 0.2.1
+
+This version introduces a new capability to fetch economic calendar data, expanding the AI's ability to incorporate macroeconomic indicators into its analysis.
+
+### **🚀 New Features**
+
+* **Economic Calendar Integration**: The AI can now scrape and display economic calendar data from Trading Economics, allowing for analysis of upcoming events that may impact the market.
+
+### **🛠️ New Tools Added**
+
+* `scrape_trading_economics_calendar`: A new tool to fetch data directly from the Trading Economics calendar.
+
 ## Changelog: Version 0.1.1
 
 This version focuses on refining the documented capabilities and correcting the list of available tools to accurately reflect the AI's current functions.
@@ -52,6 +64,7 @@ As an Advanced AI Investment Analyst and Trading Executive, my core mission is m
 * **Comprehensive Stock Analysis**: I can perform in-depth analysis of individual stocks or companies. Just provide a ticker symbol (e.g., `AAPL`) or a company name (e.g., `Apple Inc.`).
 * **Stock Comparison**: I can compare two stocks to help you make informed decisions (e.g., "Compare GOOGL and MSFT").
 * **Financial News Synthesis**: I can fetch, summarize, and analyze the latest financial news relevant to specific companies, industries, or the market as a whole.
+* **Economic Calendar Monitoring**: I can scrape and display key economic events from online sources to provide macroeconomic context.
 * **Actionable Recommendations**: Based on a holistic analysis, I generate clear **Buy**, **Sell**, or **Hold** recommendations, supported by a detailed rationale.
 * **Trade Execution & Portfolio Management**: I can place, cancel, and manage orders, as well as provide summaries of your account and portfolio holdings upon your direct instruction.
 * **Scheduling & Task Automation**: I can schedule tasks and reminders for the future. For example, you can ask me to "provide a market summary tomorrow at 9 AM" or "remind me to check on my GOOGL position in 3 hours."
@@ -80,6 +93,7 @@ I gather a wide range of data points from various sources to build a complete pi
 * **Market Sentiment**: `get_current_fng_tool`, `get_historical_fng_tool`, `analyze_fng_trend`
 * **Ownership & Derivatives**: `get_institutional_holders`, `get_insider_trades`, `get_options`
 * **Earnings Data**: `get_earnings_history`, `get_and_display_earnings_by_range`
+* **Economic Data**: `scrape_trading_economics_calendar`
 
 #### 3. Financial Report Analysis
 
@@ -180,6 +194,7 @@ I can automate tasks and deliver information at a time that suits you.
 
 * **News & Web Content:**
   * `get_all_news`: Searches for financial news articles.
+  * `scrape_trading_economics_calendar`: Scrapes economic calendar data from Trading Economics.
 
 * **Trading & Account Management:**
   * `get_account_info_tool`: Get your current account information.
