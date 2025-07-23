@@ -1,10 +1,12 @@
 from datetime import date, datetime, timedelta
-from typing import List, Optional, Union
+from typing import Optional, Union
 
+from alpaca.broker import OrderType
 from alpaca.data import ContractType
 from alpaca.trading import (
     AssetStatus,
     GetOptionContractsRequest,
+    OrderSide,
 )
 from mcp.server.fastmcp import FastMCP
 from tabulate import tabulate
@@ -13,8 +15,6 @@ from tabulate import tabulate
 from alpaca_client import AlpacaClient
 from models import (
     AlpacaOrderRequest,
-    AlpacaOrderType,
-    AlpacaOrderSide,
     AlpacaTimeInForce,
     AlpacaTimeFrame,
 )
@@ -304,7 +304,7 @@ def place_market_order(symbol: str, quantity: float, side: str) -> str:
     """
     # Validate side
     try:
-        order_side = AlpacaOrderSide(side.lower())
+        order_side = OrderSide(side.lower())
     except ValueError:
         return f"Invalid side: {side}. Must be 'buy' or 'sell'."
 
@@ -313,7 +313,7 @@ def place_market_order(symbol: str, quantity: float, side: str) -> str:
         symbol=symbol,
         qty=float(quantity),
         side=order_side,
-        type=AlpacaOrderType.MARKET,
+        type=OrderType.MARKET,
         time_in_force=AlpacaTimeInForce.DAY,
     )
 
@@ -357,7 +357,7 @@ def place_limit_order(
     """
     # Validate side
     try:
-        order_side = AlpacaOrderSide(side.lower())
+        order_side = OrderSide(side.lower())
     except ValueError:
         return f"Invalid side: {side}. Must be 'buy' or 'sell'."
 
@@ -372,7 +372,7 @@ def place_limit_order(
         symbol=symbol,
         qty=float(quantity),
         side=order_side,
-        type=AlpacaOrderType.LIMIT,
+        type=OrderType.LIMIT,
         time_in_force=order_tif,
         limit_price=float(limit_price),
     )
@@ -419,7 +419,7 @@ def place_stop_order(
     """
     # Validate side
     try:
-        order_side = AlpacaOrderSide(side.lower())
+        order_side = OrderSide(side.lower())
     except ValueError:
         return f"Invalid side: {side}. Must be 'buy' or 'sell'."
 
@@ -434,7 +434,7 @@ def place_stop_order(
         symbol=symbol,
         qty=float(quantity),
         side=order_side,
-        type=AlpacaOrderType.STOP,
+        type=OrderType.STOP,
         time_in_force=order_tif,
         stop_price=float(stop_price),
     )
@@ -483,7 +483,7 @@ def place_stop_limit_order(
     """
     # Validate side
     try:
-        order_side = AlpacaOrderSide(side.lower())
+        order_side = OrderSide(side.lower())
     except ValueError:
         return f"Invalid side: {side}. Must be 'buy' or 'sell'."
 
@@ -498,7 +498,7 @@ def place_stop_limit_order(
         symbol=symbol,
         qty=float(quantity),
         side=order_side,
-        type=AlpacaOrderType.STOP_LIMIT,
+        type=OrderType.STOP_LIMIT,
         time_in_force=order_tif,
         stop_price=float(stop_price),
         limit_price=float(limit_price),
@@ -706,7 +706,7 @@ def get_options(
 # ---- PROMPTS ----
 
 
-@mcp.prompt()
+@mcp.tool()
 def market_order_prompt(symbol: str, quantity: float, side: str) -> str:
     """Creates a prompt for placing a market order."""
     return f"""
@@ -720,7 +720,7 @@ Please execute this order for me and confirm once it's placed.
 """
 
 
-@mcp.prompt()
+@mcp.tool()
 def portfolio_analysis_prompt() -> str:
     """Creates a prompt for analyzing the current portfolio."""
     return """
@@ -735,7 +735,7 @@ Please use the portfolio summary tool to gather the necessary information.
 """
 
 
-@mcp.prompt()
+@mcp.tool()
 def market_research_prompt(symbol: str) -> str:
     """Creates a prompt for researching a specific stock."""
     return f"""

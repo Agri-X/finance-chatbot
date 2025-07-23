@@ -1,7 +1,9 @@
 from dataclasses import dataclass
 import dataclasses
 from datetime import date, datetime, timedelta
+import logging
 from venv import logger
+from literalai import Dict
 import pandas as pd
 from tabulate import tabulate
 import yfinance as yf
@@ -1113,22 +1115,77 @@ def human_format(num):
     return f"{num:.2f}"  # Format smaller numbers to two decimal places
 
 
-def getEarnings(day: Union[str, datetime, date]) -> dict:
+@mcp.tool()
+def getEarnings(day: Union[str, datetime, date]) -> Dict:
+    """
+    Fetches earnings data from for a given date.
+
+    Args:
+        day: The date for which to fetch earnings. Can be a string in ISO format (YYYY-MM-DD),
+             a datetime object, or a date object.
+
+    Returns:
+        A dictionary containing the earnings data.
+
+    Raises:
+        ValueError: If the input 'day' is not a valid date type or is a weekend.
+        RequestException: If there's an issue making the HTTP request.
+        Exception: For any other unexpected errors during data processing.
+    """
     MAIN_URL = "https://www.earningswhispers.com"
-    if isinstance(day, str):
-        day = date.fromisoformat(day)
-    elif isinstance(day, datetime):
-        day = day.date()
 
-    assert type(day) == datetime.date
+    try:
+        # Convert input to a date object
+        if isinstance(day, str):
+            try:
+                parsed_day = date.fromisoformat(day)
+                logging.debug(f"Converted string '{day}' to date object: {parsed_day}")
+            except ValueError:
+                logging.error(
+                    f"Invalid date string format: '{day}'. Expected YYYY-MM-DD."
+                )
+                raise ValueError(
+                    f"Invalid date string format: '{day}'. Expected YYYY-MM-DD."
+                )
+        elif isinstance(day, datetime):
+            parsed_day = day.date()
+            logging.debug(
+                f"Converted datetime object '{day}' to date object: {parsed_day}"
+            )
+        elif isinstance(day, date):
+            parsed_day = day
+            logging.debug(f"Using provided date object: {parsed_day}")
+        else:
+            logging.error(
+                f"Invalid type for 'day': {type(day)}. Expected str, datetime, or date."
+            )
+            raise TypeError(
+                f"Invalid type for 'day': {type(day)}. Expected str, datetime, or date."
+            )
 
-    if day.weekday() in [5, 6]:
-        raise Exception("weekend")
-    r = get(
-        url=f"{MAIN_URL}/api/caldata/{day.isoformat().replace('-', '')}",
-        headers={"Referer": f"{MAIN_URL}"},
-    )
-    return r.json()
+        if parsed_day.weekday() in [5, 6]:
+            logging.warning(
+                f"Attempted to fetch earnings for a weekend: {parsed_day.isoformat()}"
+            )
+            raise ValueError("Cannot fetch earnings for a weekend.")
+
+        api_url = f"{MAIN_URL}/api/caldata/{parsed_day.isoformat().replace('-', '')}"
+        logging.info(f"Attempting to fetch earnings data from: {api_url}")
+
+        r = get(url=api_url, headers={"Referer": MAIN_URL}, timeout=10)
+        r.raise_for_status()  # Raise an HTTPError for bad responses (4xx or 5xx)
+
+        data = r.json()
+        logging.info(f"Successfully fetched earnings data for {parsed_day.isoformat()}")
+        return data
+
+    except ValueError as ve:
+        # Re-raise ValueError as it's a specific input validation error
+        raise ve
+    except Exception as e:
+        logging.exception(f"An unexpected error occurred while fetching earnings: {e}")
+        # Using logging.exception() logs the traceback automatically
+        raise e
 
 
 @mcp.tool()
@@ -1144,62 +1201,72 @@ async def get_and_display_earnings_by_range(start_date: date, end_date: date):
         Optional[str]: An error message string if an error occurs during fetching or processing,
                        otherwise None if the operation completes successfully.
     """
-    if start_date > end_date:
-        return "Error: start_date cannot be after end_date."
+    try:
+        if start_date > end_date:
+            return "Error: start_date cannot be after end_date."
 
-    all_earnings: List[StockData] = []
+        all_earnings: List[StockData] = []
 
-    current_date = start_date
-    while current_date <= end_date:
-        if current_date.weekday() >= 5:  # 5 is Saturday, 6 is Sunday
-            print(f"Skipping {current_date.strftime('%Y-%m-%d')} (Weekend)")
-            current_date += timedelta(days=1)
-            continue  # Skip to the next day
+        current_date = start_date
+        while current_date <= end_date:
+            if current_date.weekday() >= 5:  # 5 is Saturday, 6 is Sunday
+                logging.info(f"Skipping {current_date.strftime('%Y-%m-%d')} (Weekend)")
+                current_date += timedelta(days=1)
+                continue  # Skip to the next day
 
-        print(
-            f"\n--- Attempting to fetch earnings for {current_date.strftime('%Y-%m-%d')} ---"
-        )
-        try:
-            raw_earnings_data = getEarnings(current_date)
-
-            for item in raw_earnings_data:
-                filtered_item = {
-                    k: v for k, v in item.items() if k in StockData.__dataclass_fields__
-                }
-                all_earnings.append(StockData(**filtered_item))
-
-        except Exception as e:
-            return (
-                f"Error fetching earnings for {current_date.strftime('%Y-%m-%d')}: {e}"
+            logging.info(
+                f"\n--- Attempting to fetch earnings for {current_date.strftime('%Y-%m-%d')} ---"
             )
+            try:
+                raw_earnings_data = getEarnings(current_date)
 
-        current_date += timedelta(days=1)
+                logging.info("raw_earnings_data")
+                logging.info(raw_earnings_data)
 
-    if not all_earnings:
-        return f"No earnings data found for the period from {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}. This might be due to weekends, holidays, or no scheduled earnings."
+                for item in raw_earnings_data:
+                    filtered_item = {
+                        k: v
+                        for k, v in item.items()
+                        if k in StockData.__dataclass_fields__
+                    }
+                    all_earnings.append(StockData(**filtered_item))
 
-    df = pd.DataFrame.from_records(
-        [dataclasses.asdict(stock) for stock in all_earnings]
-    )
+            except Exception as e:
+                logging.error(
+                    f"Error fetching earnings for {current_date.strftime('%Y-%m-%d')}: {e}"
+                )
+                return f"Error fetching earnings for {current_date.strftime('%Y-%m-%d')}: {e}"
 
-    columns_to_format = ["q1RevEst", "q1EstEPS", "qSales"]
-    for col in columns_to_format:
-        if col in df.columns:
-            df.loc[:, col] = df[col].apply(human_format)
+            current_date += timedelta(days=1)
 
-    date_columns = ["nextEPSDate", "confirmDate", "epsTime", "quarterDate"]
-    for col in date_columns:
-        if col in df.columns:
+        if not all_earnings:
+            return f"No earnings data found for the period from {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}. This might be due to weekends, holidays, or no scheduled earnings."
 
-            df.loc[:, col] = pd.to_datetime(
-                df[col], format="mixed", errors="coerce"
-            ).dt.strftime("%d-%m-%Y")
+        df = pd.DataFrame.from_records(
+            [dataclasses.asdict(stock) for stock in all_earnings]
+        )
 
-    return tabulate(
-        df.to_dict("list"),
-        headers="keys",
-        tablefmt="github",
-    )
+        columns_to_format = ["q1RevEst", "q1EstEPS", "qSales"]
+        for col in columns_to_format:
+            if col in df.columns:
+                df.loc[:, col] = df[col].apply(human_format)
+
+        date_columns = ["nextEPSDate", "confirmDate", "epsTime", "quarterDate"]
+        for col in date_columns:
+            if col in df.columns:
+
+                df.loc[:, col] = pd.to_datetime(
+                    df[col], format="mixed", errors="coerce"
+                ).dt.strftime("%d-%m-%Y")
+
+        return tabulate(
+            df.to_dict("list"),
+            headers="keys",
+            tablefmt="github",
+        )
+    except Exception as e:
+        logging.error(e)
+        return f"error occurred: {e}"
 
 
 # Run the server

@@ -127,6 +127,11 @@ async def initialize_tools_and_model():
 
         global all_tools
 
+        try:
+            assert all_tools
+        except:
+            await populate_tools()
+
         memory = MemorySaver()
 
         model = init_chat_model(f"{model_provider}:{model_name}")
@@ -172,6 +177,16 @@ async def on_app_startup():
     """Initialize logging and application startup."""
     logger.info("Financial chatbot is starting up...")
 
+    await populate_tools()
+
+    main_model, model = await initialize_tools_and_model()
+
+    initialize_scheduler(main_model)
+
+    logger.info("Financial chatbot is started")
+
+
+async def populate_tools():
     mcp_tools = await mcp_client.get_tools()
 
     global all_tools
@@ -185,12 +200,6 @@ async def on_app_startup():
     )
 
     logger.info(f"Populated {len(all_tools)} tools.")
-
-    main_model, model = await initialize_tools_and_model()
-
-    initialize_scheduler(main_model)
-
-    logger.info("Financial chatbot is started")
 
 
 @cl.on_stop
