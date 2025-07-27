@@ -7,6 +7,7 @@ from alpaca.trading import (
     AssetStatus,
     GetOptionContractsRequest,
     OrderSide,
+    TradingClient,
 )
 from mcp.server.fastmcp import FastMCP
 from tabulate import tabulate
@@ -17,6 +18,7 @@ from models import (
     AlpacaOrderRequest,
     AlpacaTimeInForce,
     AlpacaTimeFrame,
+    AlpacaWatchlist,
 )
 import calls
 
@@ -703,10 +705,366 @@ def get_options(
     return f"option contracts for {symbol} \n --- \n" + res
 
 
-# ---- PROMPTS ----
+@mcp.tool()
+def create_new_watchlist(name: str, symbols: Optional[str] = None) -> str:
+    """
+    Creates a new watchlist.
+
+    Args:
+        name: The name of the new watchlist.
+        symbols: An optional comma-separated string of symbols (e.g., "AAPL,GOOG,MSFT") to add initially.
+
+    Returns:
+        A confirmation message including the watchlist ID, or an error message.
+    """
+    symbol_list = (
+        [s.strip().upper() for s in symbols.split(",") if s.strip()] if symbols else []
+    )
+    watchlist_result = calls.create_alpaca_watchlist(trading_client, name, symbol_list)
+
+    if isinstance(watchlist_result, str):  # Check if it's an error string
+        return f"Failed to create watchlist '{name}'. Error: {watchlist_result}"
+    else:
+        # Assuming watchlist_result is the Watchlist ID on success from the modified function
+        return f"Watchlist '{name}' created successfully with ID: {watchlist_result}. Symbols: {', '.join(symbol_list)}"
 
 
 @mcp.tool()
+def get_all_my_watchlists() -> str:
+    """
+    Retrieves and displays all watchlists for the authenticated Alpaca account.
+
+    Returns:
+        A formatted string listing all watchlists and their symbols, or a message if none are found.
+    """
+    watchlists = calls.get_all_alpaca_watchlists(trading_client)
+    if isinstance(watchlists, str):  # Check if it's an error string
+        return f"Failed to retrieve all watchlists. Error: {watchlists}"
+
+    if watchlists:
+        output_rows = []
+        for wl in watchlists:
+            symbols_str = (
+                ", ".join([s.symbol for s in wl.assets]) if wl.assets else "No symbols"
+            )
+            output_rows.append(
+                {
+                    "Name": wl.name,
+                    "ID": str(wl.id),  # Convert UUID to string for tabulate
+                    "Symbols": symbols_str,
+                    "Created At": wl.created_at,  # Assuming created_at is already formatted or handles string
+                }
+            )
+        return f"All Your Watchlists:\n" + tabulate(
+            output_rows, headers="keys", tablefmt="github"
+        )
+    else:
+        return "No watchlists found for your account."
+
+
+@mcp.tool()
+def get_watchlist_details(identifier: str, by_name: bool = False) -> str:
+    """
+    Retrieves and displays details of a specific watchlist by its ID or name.
+
+    Args:
+        identifier: The ID (UUID string) or name of the watchlist.
+        by_name: Set to True if the identifier is a name instead of an ID.
+
+    Returns:
+        A formatted string with watchlist details, or an error message if not found.
+    """
+    watchlist: Optional[AlpacaWatchlist] = None
+    if by_name:
+        watchlist = calls.get_alpaca_watchlist_by_name(trading_client, identifier)
+    else:
+        watchlist = calls.get_alpaca_watchlist_by_id(trading_client, identifier)
+
+    if isinstance(watchlist, str):  # Check if it's an error string
+        return f"Failed to get watchlist details for '{identifier}'. Error: {watchlist}"
+
+    if watchlist:
+        symbols_str = (
+            ", ".join([s.symbol for s in watchlist.assets])
+            if watchlist.assets
+            else "No symbols"
+        )
+        return (
+            f"Watchlist Details for '{watchlist.name}' (ID: {watchlist.id}):\n"
+            f"----------------------------------------------------\n"
+            f"Account ID: {watchlist.account_id}\n"
+            f"Created: {watchlist.created_at}\n"  # Assuming created_at is already formatted or handles string
+            f"Last Updated: {watchlist.updated_at}\n"  # Assuming updated_at is already formatted or handles string
+            f"Symbols: {symbols_str}"
+        )
+    else:
+        return f"Watchlist '{identifier}' not found."
+
+
+@mcp.tool()
+def add_symbol_to_existing_watchlist(
+    watchlist_identifier: str, symbol: str, by_name: bool = False
+) -> str:
+    """
+    Adds a symbol to an existing watchlist.
+
+    Args:
+        watchlist_identifier: The ID (UUID string) or name of the watchlist.
+        symbol: The stock or crypto symbol to add (e.g., "TSLA" or "BTC/USD").
+        by_name: Set to True if the identifier is a name instead of an ID.
+
+    Returns:
+        A confirmation message, or an error message.
+    """
+    target_watchlist: Optional[AlpacaWatchlist] = None
+    if by_name:
+        target_watchlist = calls.get_alpaca_watchlist_by_name(
+            trading_client, watchlist_identifier
+        )
+    else:
+        target_watchlist = calls.get_alpaca_watchlist_by_id(
+            trading_client, watchlist_identifier
+        )
+
+    if isinstance(target_watchlist, str):  # Check if it's an error string
+        return f"Failed to find watchlist '{watchlist_identifier}'. Error: {target_watchlist}"
+
+    if not target_watchlist:
+        return f"Watchlist '{watchlist_identifier}' not found. Cannot add symbol."
+
+    updated_watchlist_result = calls.add_symbol_to_alpaca_watchlist(
+        trading_client, str(target_watchlist.id), symbol.upper().strip()
+    )
+
+    if isinstance(updated_watchlist_result, str):  # Check if it's an error string
+        return f"Failed to add symbol '{symbol.upper().strip()}' to watchlist '{target_watchlist.name}'. Error: {updated_watchlist_result}"
+    else:
+        # Assuming updated_watchlist_result is the Watchlist ID on success from the modified function
+        # We need to re-fetch the watchlist to get the updated symbols
+        re_fetched_watchlist = calls.get_alpaca_watchlist_by_id(
+            trading_client, updated_watchlist_result
+        )
+        if isinstance(re_fetched_watchlist, str):
+            return f"Symbol '{symbol.upper().strip()}' added to watchlist '{target_watchlist.name}', but failed to re-fetch watchlist details. Error: {re_fetched_watchlist}"
+
+        symbols_str = (
+            ", ".join([s.symbol for s in re_fetched_watchlist.assets])
+            if re_fetched_watchlist and re_fetched_watchlist.assets
+            else "No symbols"
+        )
+        return f"Symbol '{symbol.upper().strip()}' added to watchlist '{target_watchlist.name}'. Current symbols: {symbols_str}"
+
+
+@mcp.tool()
+def remove_symbol_from_existing_watchlist(
+    watchlist_identifier: str, symbol: str, by_name: bool = False
+) -> str:
+    """
+    Removes a symbol from an existing watchlist.
+
+    Args:
+        watchlist_identifier: The ID (UUID string) or name of the watchlist.
+        symbol: The stock or crypto symbol to remove (e.g., "TSLA" or "BTC/USD").
+        by_name: Set to True if the identifier is a name instead of an ID.
+
+    Returns:
+        A confirmation message, or an error message.
+    """
+    target_watchlist: Optional[AlpacaWatchlist] = None
+    if by_name:
+        target_watchlist = calls.get_alpaca_watchlist_by_name(
+            trading_client, watchlist_identifier
+        )
+    else:
+        target_watchlist = calls.get_alpaca_watchlist_by_id(
+            trading_client, watchlist_identifier
+        )
+
+    if isinstance(target_watchlist, str):  # Check if it's an error string
+        return f"Failed to find watchlist '{watchlist_identifier}'. Error: {target_watchlist}"
+
+    if not target_watchlist:
+        return f"Watchlist '{watchlist_identifier}' not found. Cannot remove symbol."
+
+    # Check if the symbol actually exists in the watchlist before attempting to remove
+    current_symbols = (
+        [s.symbol for s in target_watchlist.assets] if target_watchlist.assets else []
+    )
+    if symbol.upper().strip() not in current_symbols:
+        return f"Symbol '{symbol.upper().strip()}' is not in watchlist '{target_watchlist.name}'. No action taken."
+
+    updated_watchlist_result = calls.remove_symbol_from_alpaca_watchlist(
+        trading_client, str(target_watchlist.id), symbol.upper().strip()
+    )
+
+    if isinstance(updated_watchlist_result, str):  # Check if it's an error string
+        return f"Failed to remove symbol '{symbol.upper().strip()}' from watchlist '{target_watchlist.name}'. Error: {updated_watchlist_result}"
+    else:
+        # Assuming updated_watchlist_result is the Watchlist ID on success from the modified function
+        # We need to re-fetch the watchlist to get the updated symbols
+        re_fetched_watchlist = calls.get_alpaca_watchlist_by_id(
+            trading_client, updated_watchlist_result
+        )
+        if isinstance(re_fetched_watchlist, str):
+            return f"Symbol '{symbol.upper().strip()}' removed from watchlist '{target_watchlist.name}', but failed to re-fetch watchlist details. Error: {re_fetched_watchlist}"
+
+        symbols_str = (
+            ", ".join([s.symbol for s in re_fetched_watchlist.assets])
+            if re_fetched_watchlist and re_fetched_watchlist.assets
+            else "No symbols"
+        )
+        return f"Symbol '{symbol.upper().strip()}' removed from watchlist '{target_watchlist.name}'. Current symbols: {symbols_str}"
+
+
+@mcp.tool()
+def rename_watchlist(
+    watchlist_identifier: str,
+    new_name: str,
+    by_name: bool = False,
+) -> str:
+    """
+    Renames an existing watchlist.
+
+    Args:
+        watchlist_identifier: The ID (UUID string) or current name of the watchlist.
+        new_name: The new name for the watchlist.
+        by_name: Set to True if the identifier is the current name instead of an ID.
+
+    Returns:
+        A confirmation message, or an error message.
+    """
+    target_watchlist: Optional[AlpacaWatchlist] = None
+    if by_name:
+        target_watchlist = calls.get_alpaca_watchlist_by_name(
+            trading_client, watchlist_identifier
+        )
+    else:
+        target_watchlist = calls.get_alpaca_watchlist_by_id(
+            trading_client, watchlist_identifier
+        )
+
+    if isinstance(target_watchlist, str):  # Check if it's an error string
+        return f"Failed to find watchlist '{watchlist_identifier}'. Error: {target_watchlist}"
+
+    if not target_watchlist:
+        return f"Watchlist '{watchlist_identifier}' not found. Cannot rename."
+
+    updated_watchlist_result = calls.update_alpaca_watchlist_name(
+        trading_client, str(target_watchlist.id), new_name
+    )
+
+    if isinstance(updated_watchlist_result, str):  # Check if it's an error string
+        return f"Failed to rename watchlist '{watchlist_identifier}' to '{new_name}'. Error: {updated_watchlist_result}"
+    else:
+        # Assuming updated_watchlist_result is the Watchlist ID on success from the modified function
+        return f"Watchlist '{watchlist_identifier}' successfully renamed to '{new_name}' (ID: {updated_watchlist_result})."
+
+
+@mcp.tool()
+def replace_watchlist_symbols_fully(
+    watchlist_identifier: str,
+    new_symbols: str,
+    by_name: bool = False,
+) -> str:
+    """
+    Replaces ALL existing symbols in a watchlist with a new set of symbols.
+    Use with caution as this overwrites the entire symbol list.
+
+    Args:
+        watchlist_identifier: The ID (UUID string) or name of the watchlist.
+        new_symbols: A comma-separated string of symbols (e.g., "AAPL,GOOG,MSFT") to completely replace existing ones.
+        by_name: Set to True if the identifier is a name instead of an ID.
+
+    Returns:
+        A confirmation message, or an error message.
+    """
+    target_watchlist: Optional[AlpacaWatchlist] = None
+    if by_name:
+        target_watchlist = calls.get_alpaca_watchlist_by_name(
+            trading_client, watchlist_identifier
+        )
+    else:
+        target_watchlist = calls.get_alpaca_watchlist_by_id(
+            trading_client, watchlist_identifier
+        )
+
+    if isinstance(target_watchlist, str):  # Check if it's an error string
+        return f"Failed to find watchlist '{watchlist_identifier}'. Error: {target_watchlist}"
+
+    if not target_watchlist:
+        return f"Watchlist '{watchlist_identifier}' not found. Cannot replace symbols."
+
+    symbol_list = (
+        [s.strip().upper() for s in new_symbols.split(",") if s.strip()]
+        if new_symbols
+        else []
+    )
+    updated_watchlist_result = calls.replace_alpaca_watchlist_symbols(
+        trading_client, str(target_watchlist.id), symbol_list
+    )
+
+    if isinstance(updated_watchlist_result, str):  # Check if it's an error string
+        return f"Failed to replace symbols for watchlist '{target_watchlist.name}'. Error: {updated_watchlist_result}"
+    else:
+        # Assuming updated_watchlist_result is the Watchlist ID on success from the modified function
+        re_fetched_watchlist = calls.get_alpaca_watchlist_by_id(
+            trading_client, updated_watchlist_result
+        )
+        if isinstance(re_fetched_watchlist, str):
+            return f"Watchlist '{target_watchlist.name}' symbols replaced, but failed to re-fetch watchlist details. Error: {re_fetched_watchlist}"
+
+        symbols_str = (
+            ", ".join([s.symbol for s in re_fetched_watchlist.assets])
+            if re_fetched_watchlist and re_fetched_watchlist.assets
+            else "No symbols"
+        )
+        return f"Watchlist '{target_watchlist.name}' symbols successfully replaced. New symbols: {symbols_str}"
+
+
+@mcp.tool()
+def delete_existing_watchlist(watchlist_identifier: str, by_name: bool = False) -> str:
+    """
+    Deletes an entire watchlist. This action is permanent.
+
+    Args:
+        watchlist_identifier: The ID (UUID string) or name of the watchlist to delete.
+        by_name: Set to True if the identifier is a name instead of an ID.
+
+    Returns:
+        A confirmation message, or an error message.
+    """
+    target_watchlist: Optional[AlpacaWatchlist] = None
+    if by_name:
+        target_watchlist = calls.get_alpaca_watchlist_by_name(
+            trading_client, watchlist_identifier
+        )
+    else:
+        target_watchlist = calls.get_alpaca_watchlist_by_id(
+            trading_client, watchlist_identifier
+        )
+
+    if isinstance(target_watchlist, str):  # Check if it's an error string
+        return f"Failed to find watchlist '{watchlist_identifier}'. Error: {target_watchlist}"
+
+    if not target_watchlist:
+        return f"Watchlist '{watchlist_identifier}' not found. Nothing to delete."
+
+    deletion_result = calls.delete_alpaca_watchlist(
+        trading_client, str(target_watchlist.id)
+    )
+
+    if isinstance(deletion_result, str):  # Check if it's an error string
+        return f"Failed to delete watchlist '{target_watchlist.name}' (ID: {target_watchlist.id}). Error: {deletion_result}"
+    elif deletion_result:  # True if successful
+        return f"Watchlist '{target_watchlist.name}' (ID: {target_watchlist.id}) successfully deleted."
+    else:  # False if there was an internal error not caught by APIError
+        return f"Failed to delete watchlist '{target_watchlist.name}' (ID: {target_watchlist.id}). An unknown error occurred."
+
+
+# ---- PROMPTS ----
+
+
+@mcp.prompt()
 def market_order_prompt(symbol: str, quantity: float, side: str) -> str:
     """Creates a prompt for placing a market order."""
     return f"""
@@ -720,7 +1078,7 @@ Please execute this order for me and confirm once it's placed.
 """
 
 
-@mcp.tool()
+@mcp.prompt()
 def portfolio_analysis_prompt() -> str:
     """Creates a prompt for analyzing the current portfolio."""
     return """
@@ -735,7 +1093,7 @@ Please use the portfolio summary tool to gather the necessary information.
 """
 
 
-@mcp.tool()
+@mcp.prompt()
 def market_research_prompt(symbol: str) -> str:
     """Creates a prompt for researching a specific stock."""
     return f"""

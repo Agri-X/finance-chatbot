@@ -208,3 +208,20 @@ class AlpacaBar(BaseModel):
     close: float
     volume: int
     timestamp: datetime
+
+
+class WatchlistAsset(BaseModel):
+    asset_id: str
+    symbol: str
+    name: str
+    exchange: str
+    asset_class: str
+
+
+class AlpacaWatchlist(BaseModel):
+    id: str
+    name: str
+    account_id: str
+    created_at: datetime
+    updated_at: datetime
+    assets: List[WatchlistAsset]

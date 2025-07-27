@@ -1,7 +1,8 @@
 import logging
 from typing import List, Optional, Union
 from datetime import datetime, timedelta
-from alpaca.trading import OrderStatus
+from alpaca.common import APIError
+from alpaca.trading import CreateWatchlistRequest, OrderStatus, UpdateWatchlistRequest
 from alpaca.trading.requests import GetOptionContractsRequest
 
 from alpaca.trading.client import TradingClient
@@ -39,6 +40,7 @@ from models import (
     AlpacaQuote,
     AlpacaBar,
     AlpacaOrderType,
+    AlpacaWatchlist,
 )
 
 
@@ -321,7 +323,7 @@ def get_option_contracts(
         start_date = end_date - timedelta(days=30)
         stock_bars_request = StockBarsRequest(
             symbol_or_symbols=request.underlying_symbols,
-            timeframe=TimeFrame(amount=1, unit=TimeFrameUnit.Day),
+            timeframe=TimeFrame(amount=1, unit=TimeFrameUnit(TimeFrameUnit.Day)),
             start=start_date,
             end=end_date,
             limit=1000,
@@ -396,10 +398,269 @@ def get_option_contracts(
     return rows
 
 
-if __name__ == "__main__":
-    from alpaca_client import AlpacaClient
+def create_alpaca_watchlist(
+    client: TradingClient, name: str, symbols: Optional[List[str]] = None
+) -> Optional[str]:  # Changed return type to Optional[str] for error message
+    """
+    Creates a new watchlist on Alpaca.
 
-    alpaca_client = AlpacaClient()
-    trading_client = alpaca_client.trading_client()
+    :param client: The Alpaca TradingClient instance.
+    :param name: The name of the watchlist.
+    :param symbols: An optional list of symbols (e.g., ["AAPL", "GOOG"]) to add initially.
+    :return: The ID of the created AlpacaWatchlist object on success, or an error string.
+    """
+    try:
+        watchlist_data = CreateWatchlistRequest(
+            name=name, symbols=symbols if symbols else []
+        )
+        watchlist = client.create_watchlist(watchlist_data=watchlist_data)
+        logging.info(f"Watchlist '{name}' created successfully. ID: {watchlist.id}")
+        return watchlist.id  # Return the watchlist ID on success
+    except APIError as e:
+        error_message = f"Error creating watchlist '{name}': {e}"
+        logging.error(error_message)
+        return error_message
+    except Exception as e:
+        error_message = (
+            f"An unexpected error occurred while creating watchlist '{name}': {e}"
+        )
+        logging.error(error_message)
+        return error_message
 
-    logging.info(get_orders(trading_client))
+
+def add_symbol_to_alpaca_watchlist(
+    client: TradingClient, watchlist_id: str, symbol: str
+) -> Optional[str]:  # Changed return type to Optional[str]
+    """
+    Adds a symbol to an existing Alpaca watchlist.
+
+    :param client: The Alpaca TradingClient instance.
+    :param watchlist_id: The ID of the watchlist.
+    :param symbol: The symbol to add (e.g., "MSFT").
+    :return: The ID of the updated AlpacaWatchlist object on success, or an error string.
+    """
+    try:
+        watchlist = client.add_asset_to_watchlist_by_id(
+            watchlist_id=watchlist_id, symbol=symbol
+        )
+        logging.info(f"Symbol '{symbol}' added to watchlist {watchlist_id}.")
+        return watchlist.id  # Return the watchlist ID on success
+    except APIError as e:
+        error_message = (
+            f"Error adding symbol '{symbol}' to watchlist {watchlist_id}: {e}"
+        )
+        logging.error(error_message)
+        return error_message
+    except Exception as e:
+        error_message = f"An unexpected error occurred while adding symbol '{symbol}' to watchlist {watchlist_id}: {e}"
+        logging.error(error_message)
+        return error_message
+
+
+# --- READ Operations ---
+def get_all_alpaca_watchlists(
+    client: TradingClient,
+) -> Optional[
+    List[AlpacaWatchlist]
+]:  # This function's return type remains a list of objects or None, as per the user's implicit request of only changing error to string, not all of them.
+    """
+    Retrieves all watchlists for the authenticated Alpaca account.
+
+    :param client: The Alpaca TradingClient instance.
+    :return: A list of AlpacaWatchlist objects or None on error.
+    """
+    try:
+        watchlists = client.get_watchlists()
+        if watchlists:
+            logging.info("--- All Watchlists ---")
+            for wl in watchlists:
+                logging.info(
+                    f"Name: {wl.name}, ID: {wl.id}, Symbols: {[s.symbol for s in wl.assets]}"
+                )
+            return [AlpacaWatchlist(**wl.__dict__) for wl in watchlists]
+        else:
+            logging.info("No watchlists found.")
+            return []
+    except APIError as e:
+        logging.error(f"Error retrieving all watchlists: {e}")
+        return None
+    except Exception as e:
+        logging.error(
+            f"An unexpected error occurred while retrieving all watchlists: {e}"
+        )
+        return None
+
+
+def get_alpaca_watchlist_by_id(
+    client: TradingClient, watchlist_id: str
+) -> Optional[
+    AlpacaWatchlist
+]:  # This function's return type remains AlpacaWatchlist object or None.
+    """
+    Retrieves a specific watchlist by its ID from Alpaca.
+
+    :param client: The Alpaca TradingClient instance.
+    :param watchlist_id: The ID of the watchlist.
+    :return: The AlpacaWatchlist object or None if not found/error.
+    """
+    try:
+        watchlist = client.get_watchlist_by_id(watchlist_id=watchlist_id)
+        if watchlist:
+            logging.info(f"--- Watchlist '{watchlist.name}' (ID: {watchlist.id}) ---")
+            logging.info(f"Symbols: {[s.symbol for s in watchlist.assets]}")
+            return AlpacaWatchlist(**watchlist.__dict__)
+        else:
+            logging.info(f"Watchlist with ID '{watchlist_id}' not found.")
+            return None
+    except APIError as e:
+        # Alpaca-py raises APIError if watchlist is not found (404)
+        if "404" in str(e):
+            logging.warning(
+                f"Watchlist with ID '{watchlist_id}' not found (API Error 404)."
+            )
+            return None
+        logging.error(f"Error retrieving watchlist by ID '{watchlist_id}': {e}")
+        return None
+    except Exception as e:
+        logging.error(
+            f"An unexpected error occurred while retrieving watchlist by ID '{watchlist_id}': {e}"
+        )
+        return None
+
+
+def get_alpaca_watchlist_by_name(
+    client: TradingClient, name: str
+) -> Optional[
+    AlpacaWatchlist
+]:  # This function's return type remains AlpacaWatchlist object or None.
+    """
+    Retrieves a specific watchlist by its name (iterates through all watchlists).
+    Note: Alpaca API doesn't directly support getting by name, so we iterate.
+
+    :param client: The Alpaca TradingClient instance.
+    :param name: The name of the watchlist.
+    :return: The AlpacaWatchlist object or None if not found/error.
+    """
+    watchlists = get_all_alpaca_watchlists(client)
+    if watchlists:
+        for wl in watchlists:
+            if wl.name == name:
+                logging.info(f"Found watchlist '{wl.name}' by name. ID: {wl.id}")
+                return wl
+        logging.info(f"Watchlist with name '{name}' not found.")
+    return None
+
+
+# --- UPDATE Operations ---
+def update_alpaca_watchlist_name(
+    client: TradingClient, watchlist_id: str, new_name: str
+) -> Optional[str]:  # Changed return type to Optional[str]
+    """
+    Updates the name of an existing Alpaca watchlist.
+
+    :param client: The Alpaca TradingClient instance.
+    :param watchlist_id: The ID of the watchlist.
+    :param new_name: The new name for the watchlist.
+    :return: The ID of the updated AlpacaWatchlist object on success, or an error string.
+    """
+    try:
+        watchlist_data = UpdateWatchlistRequest(name=new_name)
+        watchlist = client.update_watchlist_by_id(
+            watchlist_id=watchlist_id, watchlist_data=watchlist_data
+        )
+        logging.info(f"Watchlist {watchlist_id} renamed to '{new_name}'.")
+        return watchlist.id  # Return the watchlist ID on success
+    except APIError as e:
+        error_message = f"Error updating watchlist name for ID '{watchlist_id}': {e}"
+        logging.error(error_message)
+        return error_message
+    except Exception as e:
+        error_message = f"An unexpected error occurred while updating watchlist name for ID '{watchlist_id}': {e}"
+        logging.error(error_message)
+        return error_message
+
+
+def replace_alpaca_watchlist_symbols(
+    client: TradingClient, watchlist_id: str, new_symbols: List[str]
+) -> Optional[str]:  # Changed return type to Optional[str]
+    """
+    Replaces all symbols in an Alpaca watchlist with a new set of symbols.
+    Use with caution as this overwrites the entire symbol list.
+
+    :param client: The Alpaca TradingClient instance.
+    :param watchlist_id: The ID of the watchlist.
+    :param new_symbols: A list of new symbols to replace the existing ones.
+    :return: The ID of the updated AlpacaWatchlist object on success, or an error string.
+    """
+    try:
+        watchlist_data = UpdateWatchlistRequest(symbols=new_symbols)
+        watchlist = client.update_watchlist_by_id(
+            watchlist_id=watchlist_id, watchlist_data=watchlist_data
+        )
+        logging.info(f"Watchlist {watchlist_id} symbols replaced with {new_symbols}.")
+        return watchlist.id  # Return the watchlist ID on success
+    except APIError as e:
+        error_message = (
+            f"Error replacing watchlist symbols for ID '{watchlist_id}': {e}"
+        )
+        logging.error(error_message)
+        return error_message
+    except Exception as e:
+        error_message = f"An unexpected error occurred while replacing watchlist symbols for ID '{watchlist_id}': {e}"
+        logging.error(error_message)
+        return error_message
+
+
+def remove_symbol_from_alpaca_watchlist(
+    client: TradingClient, watchlist_id: str, symbol: str
+) -> Optional[str]:  # Changed return type to Optional[str]
+    """
+    Removes a specific symbol from an Alpaca watchlist.
+
+    :param client: The Alpaca TradingClient instance.
+    :param watchlist_id: The ID of the watchlist.
+    :param symbol: The symbol to remove.
+    :return: The ID of the updated AlpacaWatchlist object on success, or an error string.
+    """
+    try:
+        watchlist = client.remove_asset_from_watchlist_by_id(
+            watchlist_id=watchlist_id, symbol=symbol
+        )
+        logging.info(f"Symbol '{symbol}' removed from watchlist {watchlist_id}.")
+        return watchlist.id  # Return the watchlist ID on success
+    except APIError as e:
+        error_message = (
+            f"Error removing symbol '{symbol}' from watchlist {watchlist_id}: {e}"
+        )
+        logging.error(error_message)
+        return error_message
+    except Exception as e:
+        error_message = f"An unexpected error occurred while removing symbol '{symbol}' from watchlist {watchlist_id}: {e}"
+        logging.error(error_message)
+        return error_message
+
+
+def delete_alpaca_watchlist(
+    client: TradingClient, watchlist_id: str
+) -> bool | str:  # Changed return type to bool | str
+    """
+    Deletes an entire Alpaca watchlist. This is permanent.
+
+    :param client: The Alpaca TradingClient instance.
+    :param watchlist_id: The ID of the watchlist to delete.
+    :return: True if successful, or an error string otherwise.
+    """
+    try:
+        client.delete_watchlist_by_id(watchlist_id=watchlist_id)
+        logging.info(f"Watchlist {watchlist_id} deleted successfully.")
+        return True
+    except APIError as e:
+        error_message = f"Error deleting watchlist {watchlist_id}: {e}"
+        logging.error(error_message)
+        return error_message
+    except Exception as e:
+        error_message = (
+            f"An unexpected error occurred while deleting watchlist {watchlist_id}: {e}"
+        )
+        logging.error(error_message)
+        return error_message
