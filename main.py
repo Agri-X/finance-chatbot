@@ -7,7 +7,6 @@ from typing import Dict, List, Optional
 from dotenv import load_dotenv
 
 from langchain.chat_models import init_chat_model
-from langchain.tools import BaseTool
 from langsmith import Client as LangSmithClient
 
 from langchain.schema.runnable.config import RunnableConfig
@@ -19,7 +18,7 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 
 from chainlit_local import chainlit_global as cl
 
-from tools.economic_calendar import scrape_trading_economics_calendar
+from tools.calendar import financial_calendar_tools
 from tools.time import time_tools
 from tools.email import email_tools
 from tools.scheduler import scheduler_tools
@@ -188,6 +187,7 @@ async def on_app_startup():
 
 async def populate_tools():
     mcp_tools = await mcp_client.get_tools()
+    mcp_tools = await mcp_client.get_tools()
 
     global all_tools
 
@@ -196,7 +196,7 @@ async def populate_tools():
         + time_tools
         + scheduler_tools
         + email_tools
-        + [scrape_trading_economics_calendar]
+        + financial_calendar_tools
     )
 
     logger.info(f"Populated {len(all_tools)} tools.")

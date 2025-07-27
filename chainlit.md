@@ -1,8 +1,24 @@
 # Advanced AI Investment Analyst and Trading Executive: README
 
+## Changelog: Version 0.2.2
+
+This version significantly enhances the AI's ability to provide comprehensive financial calendar information, consolidating earnings and economic events into a unified view.
+
+### **🚀 New Features**
+
+* **Comprehensive Financial Calendar**: The AI can now fetch and display a combined view of corporate earnings announcements and economic events for specified dates or date ranges, offering a holistic overview of market-moving events.
+
+### **🛠️ Tool Updates & Removals**
+
+* **Replaced Tools**: The previous `scrape_trading_economics_calendar` and `get_and_display_earnings_by_range` tools have been replaced by more robust and integrated calendar functions.
+* **New Tools Added**:
+  * `fetch_earnings_calendar`: To retrieve detailed corporate earnings announcements.
+  * `fetch_economic_calendar`: To retrieve detailed economic events and indicators.
+  * `get_comprehensive_financial_calendar`: To provide a unified, formatted view of both earnings and economic events.
+
 ## Changelog: Version 0.2.1
 
-This version introduces a new capability to fetch economic calendar data, expanding the AI's ability to incorporate macroeconomic indicators into its analysis.
+This version introduces a new capability to fetch economic calendar data, expanding the AI&amp;#039;s ability to incorporate macroeconomic indicators into its analysis.
 
 ### **🚀 New Features**
 
@@ -14,9 +30,9 @@ This version introduces a new capability to fetch economic calendar data, expand
 
 ## Changelog: Version 0.1.1
 
-This version focuses on refining the documented capabilities and correcting the list of available tools to accurately reflect the AI's current functions.
+This version focuses on refining the documented capabilities and correcting the list of available tools to accurately reflect the AI&amp;#039;s current functions.
 
-### **🛠️ Tool & Documentation Refinements**
+### **🛠️ Tool &amp;amp; Documentation Refinements**
 
 * **Tool List Correction**: Removed `get_earnings_calendar`, `get_sp500_tickers`, and `fetch_article_content` from the documented tool list as they are not currently available.
 * **New Tool Documentation**: Added `get_and_display_earnings_by_range` to the list of available tools.
@@ -25,11 +41,11 @@ This version focuses on refining the documented capabilities and correcting the 
 
 ## Changelog: Version 0.1.0
 
-This version introduces a major new capability focused on scheduling, automation, and reporting, significantly expanding the assistant's utility beyond real-time analysis and trading.
+This version introduces a major new capability focused on scheduling, automation, and reporting, significantly expanding the assistant&amp;#039;s utility beyond real-time analysis and trading.
 
 ### **🚀 New Features**
 
-* **Task Scheduling & Reminders**: You can now schedule tasks and reminders for the AI to execute in the future. This allows for automated, time-based actions like generating a portfolio summary every morning or getting news alerts at a specific time.
+* **Task Scheduling &amp;amp; Reminders**: You can now schedule tasks and reminders for the AI to execute in the future. This allows for automated, time-based actions like generating a portfolio summary every morning or getting news alerts at a specific time.
 * **Automated Email Reporting**: The AI can now send analysis, reports, or any requested content directly to your email address. This can be done on-demand or as part of a scheduled task.
 
 ### **🛠️ New Tools Added**
@@ -38,7 +54,7 @@ A new suite of tools has been added to support the scheduling and reporting feat
 
 * **Time Management**:
   * `get_current_time`: To get the precise current time in any timezone.
-  * `calculate_relative_time`: To understand and calculate future or past times (e.g., "in 2 hours", "at 5 PM EST").
+  * `calculate_relative_time`: To understand and calculate future or past times (e.g., &amp;quot;in 2 hours&amp;quot;, &amp;quot;at 5 PM EST&amp;quot;).
 * **Task Management**:
   * `schedule_task_tool`: The core function to schedule a prompt for future execution.
   * `list_scheduled_tasks`: To view all pending automated tasks.
@@ -46,9 +62,9 @@ A new suite of tools has been added to support the scheduling and reporting feat
 * **Reporting**:
   * `send_markdown_email`: To send formatted content to an email address.
 
-### **📄 Documentation & Tool Updates**
+### **📄 Documentation &amp;amp; Tool Updates**
 
-* **README Update**: The main README has been updated to include the new "Scheduling, Reminders, & Reporting" section.
+* **README Update**: The main README has been updated to include the new &amp;quot;Scheduling, Reminders, &amp;amp; Reporting&amp;quot; section.
 * The `generate_chart` tool mentioned in the v0.0.1 README was removed as it is not an available function.
 
 ***
@@ -62,12 +78,12 @@ As an Advanced AI Investment Analyst and Trading Executive, my core mission is m
 ### Core Capabilities
 
 * **Comprehensive Stock Analysis**: I can perform in-depth analysis of individual stocks or companies. Just provide a ticker symbol (e.g., `AAPL`) or a company name (e.g., `Apple Inc.`).
-* **Stock Comparison**: I can compare two stocks to help you make informed decisions (e.g., "Compare GOOGL and MSFT").
+* **Stock Comparison**: I can compare two stocks to help you make informed decisions (e.g., &amp;quot;Compare GOOGL and MSFT&amp;quot;).
 * **Financial News Synthesis**: I can fetch, summarize, and analyze the latest financial news relevant to specific companies, industries, or the market as a whole.
-* **Economic Calendar Monitoring**: I can scrape and display key economic events from online sources to provide macroeconomic context.
+* **Financial Calendar Integration**: I can provide a unified view of upcoming corporate earnings announcements and economic events, helping you stay informed about market-moving catalysts.
 * **Actionable Recommendations**: Based on a holistic analysis, I generate clear **Buy**, **Sell**, or **Hold** recommendations, supported by a detailed rationale.
-* **Trade Execution & Portfolio Management**: I can place, cancel, and manage orders, as well as provide summaries of your account and portfolio holdings upon your direct instruction.
-* **Scheduling & Task Automation**: I can schedule tasks and reminders for the future. For example, you can ask me to "provide a market summary tomorrow at 9 AM" or "remind me to check on my GOOGL position in 3 hours."
+* **Trade Execution &amp;amp; Portfolio Management**: I can place, cancel, and manage orders, as well as provide summaries of your account and portfolio holdings upon your direct instruction.
+* **Scheduling &amp;amp; Task Automation**: I can schedule tasks and reminders for the future. For example, you can ask me to &amp;quot;provide a market summary tomorrow at 9 AM&amp;quot; or &amp;quot;remind me to check on my GOOGL position in 3 hours.&amp;quot;
 * **Email Reporting**: I can send the results of my analysis or other content directly to an email address, either immediately or at a scheduled time.
 
 ***
@@ -76,28 +92,28 @@ As an Advanced AI Investment Analyst and Trading Executive, my core mission is m
 
 For analysis requests, I follow a structured, multi-step process to ensure every analysis is thorough and well-rounded.
 
-#### 1. User Interaction & Query Interpretation
+#### 1. User Interaction &amp;amp; Query Interpretation
 
 My first step is to understand your request accurately.
 
 * **Ticker Identification**: If you provide a company name, I use the `get_ticker` tool to find the correct stock symbol.
 * **Clarification**: If a company name is ambiguous or has multiple listings, I will ask for more information to ensure accuracy.
-* **News-Only Requests**: For requests purely about news, I will directly proceed to the News & Event Synthesis step.
+* **News-Only Requests**: For requests purely about news, I will directly proceed to the News &amp;amp; Event Synthesis step.
 
-#### 2. Data Acquisition & Validation
+#### 2. Data Acquisition &amp;amp; Validation
 
 I gather a wide range of data points from various sources to build a complete picture.
 
 * **Broad Overview**: `comprehensive_ticker_report`
 * **Core Financials**: `get_stock_price`, `get_price_history`
 * **Market Sentiment**: `get_current_fng_tool`, `get_historical_fng_tool`, `analyze_fng_trend`
-* **Ownership & Derivatives**: `get_institutional_holders`, `get_insider_trades`, `get_options`
-* **Earnings Data**: `get_earnings_history`, `get_and_display_earnings_by_range`
-* **Economic Data**: `scrape_trading_economics_calendar`
+* **Ownership &amp;amp; Derivatives**: `get_institutional_holders`, `get_insider_trades`, `get_options`
+* **Earnings Data**: `fetch_earnings_calendar`, `get_earnings_history`
+* **Economic Data**: `fetch_economic_calendar`, `get_comprehensive_financial_calendar`
 
 #### 3. Financial Report Analysis
 
-I dive deep into a company's financial health.
+I dive deep into a company&amp;#039;s financial health.
 
 * **Financial Statements**: `get_financial_statements` (Income, Balance Sheet, Cash Flow)
 * **Earnings Performance**: `get_earnings_history` to analyze past performance and future estimates.
@@ -118,7 +134,7 @@ I analyze price and volume data to identify market trends and patterns.
   * `get_trend_analysis`
 * **Summary**: I use `get_technical_summary` for a quick overview of key technical signals.
 
-#### 5. News & Event Synthesis
+#### 5. News &amp;amp; Event Synthesis
 
 I stay on top of the latest events that could impact your investments.
 
@@ -131,7 +147,7 @@ This is the culmination of my analysis. I synthesize all the data from the previ
 
 ***
 
-### Trading & Account Management
+### Trading &amp;amp; Account Management
 
 For direct action requests, I bypass the analytical workflow and use transactional tools to manage your portfolio.
 
@@ -141,7 +157,7 @@ For direct action requests, I bypass the analytical workflow and use transaction
   * `place_limit_order`
   * `place_stop_order`
   * `place_stop_limit_order`
-* **Position & Order Management**:
+* **Position &amp;amp; Order Management**:
   * `close_position`: To liquidate an existing holding.
   * `cancel_order`: To cancel a pending order.
 * **Account Information**:
@@ -150,11 +166,11 @@ For direct action requests, I bypass the analytical workflow and use transaction
 
 ***
 
-### Scheduling, Reminders, & Reporting
+### Scheduling, Reminders, &amp;amp; Reporting
 
 I can automate tasks and deliver information at a time that suits you.
 
-* **Time-Based Triggers**: Using `get_current_time` and `calculate_relative_time`, I can understand requests like "in 5 hours" or "tomorrow at 10 AM EST."
+* **Time-Based Triggers**: Using `get_current_time` and `calculate_relative_time`, I can understand requests like &amp;quot;in 5 hours&amp;quot; or &amp;quot;tomorrow at 10 AM EST.&amp;quot;
 * **Task Scheduling**: With `schedule_task_tool`, I can set a reminder or schedule a complex task for a future time.
 * **Task Management**: You can view all pending tasks with `list_scheduled_tasks` and cancel any with `cancel_scheduled_task`.
 * **Email Delivery**: I can use `send_markdown_email` to send reports, analysis, or news summaries to a specified email address, either instantly or as part of a scheduled task.
@@ -163,15 +179,15 @@ I can automate tasks and deliver information at a time that suits you.
 
 ### Here are the tools I have available
 
-* **Financial Data & Analysis:**
+* **Financial Data &amp;amp; Analysis:**
   * `comprehensive_ticker_report`: Get a full report on a stock (overview, metrics, news).
-  * `get_ticker`: Fetch a company's stock ticker symbol.
+  * `get_ticker`: Fetch a company&amp;#039;s stock ticker symbol.
   * `get_stock_price`: Retrieve the current stock price.
   * `get_price_history`: Retrieve historical price data for various periods.
   * `get_financial_statements`: Get income, balance, or cash flow statements.
   * `get_institutional_holders`: List major institutional and mutual fund holders.
   * `get_earnings_history`: Provide a history of earnings reports.
-  * `get_and_display_earnings_by_range`: Fetches stock earnings data for a specified date range.
+  * `fetch_earnings_calendar`: Fetch corporate earnings announcements for a single date or date range.
   * `get_insider_trades`: Show recent insider trading activity.
   * `get_options`: Fetch options contract data.
   * `compare_stocks`: Compare key metrics for two stocks.
@@ -184,19 +200,20 @@ I can automate tasks and deliver information at a time that suits you.
   * `get_bollinger_bands`: Calculate Bollinger Bands.
   * `get_volatility_analysis`: Analyze stock volatility.
   * `get_support_resistance`: Identify support and resistance levels.
-  * `get_trend_analysis`: Analyze the stock's trend.
+  * `get_trend_analysis`: Analyze the stock&amp;#039;s trend.
   * `get_technical_summary`: Provide a summary of all key technical indicators.
 
 * **Market Sentiment:**
-  * `get_current_fng_tool`: Get the current Fear & Greed Index.
-  * `get_historical_fng_tool`: Retrieve historical Fear & Greed data.
-  * `analyze_fng_trend`: Analyze the trend of the Fear & Greed Index.
+  * `get_current_fng_tool`: Get the current Fear &amp;amp; Greed Index.
+  * `get_historical_fng_tool`: Retrieve historical Fear &amp;amp; Greed data.
+  * `analyze_fng_trend`: Analyze the trend of the Fear &amp;amp; Greed Index.
 
-* **News & Web Content:**
+* **News &amp;amp; Web Content:**
   * `get_all_news`: Searches for financial news articles.
-  * `scrape_trading_economics_calendar`: Scrapes economic calendar data from Trading Economics.
+  * `fetch_economic_calendar`: Fetch economic events and indicators for a single date or date range.
+  * `get_comprehensive_financial_calendar`: Get complete financial calendar combining earnings and economic events for date(s).
 
-* **Trading & Account Management:**
+* **Trading &amp;amp; Account Management:**
   * `get_account_info_tool`: Get your current account information.
   * `get_portfolio_summary`: Provide a summary of your investment portfolio.
   * `place_market_order`: Place a market order.
@@ -206,9 +223,9 @@ I can automate tasks and deliver information at a time that suits you.
   * `cancel_order`: Cancel an open order by ID.
   * `close_position`: Close an open position for a symbol.
 
-* **Scheduling & Productivity:**
+* **Scheduling &amp;amp; Productivity:**
   * `get_current_time`: Get the current time in any timezone.
-  * `calculate_relative_time`: Calculate future/past dates (e.g., "in 5 hours").
+  * `calculate_relative_time`: Calculate future/past dates (e.g., &amp;quot;in 5 hours&amp;quot;).
   * `schedule_task_tool`: Schedule a task for future execution.
   * `list_scheduled_tasks`: List all pending scheduled tasks.
   * `cancel_scheduled_task`: Cancel a scheduled task by ID.
