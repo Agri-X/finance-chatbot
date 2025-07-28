@@ -211,17 +211,16 @@ class AlpacaBar(BaseModel):
 
 
 class WatchlistAsset(BaseModel):
-    asset_id: str
+    id: UUID
+    name: Optional[str]
     symbol: str
-    name: str
     exchange: str
-    asset_class: str
 
 
 class AlpacaWatchlist(BaseModel):
-    id: str
+    id: UUID
     name: str
-    account_id: str
+    account_id: UUID
     created_at: datetime
     updated_at: datetime
-    assets: List[WatchlistAsset]
+    assets: Optional[List[WatchlistAsset]]

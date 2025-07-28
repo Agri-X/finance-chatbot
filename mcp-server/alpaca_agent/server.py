@@ -7,7 +7,6 @@ from alpaca.trading import (
     AssetStatus,
     GetOptionContractsRequest,
     OrderSide,
-    TradingClient,
 )
 from mcp.server.fastmcp import FastMCP
 from tabulate import tabulate
@@ -40,16 +39,15 @@ option_data_client = alpaca_client.option_data_client()
 def get_account_info() -> str:
     """Get current account information."""
     account = calls.get_account(trading_client)
-    return (
-        f"Account Summary:\n"
-        f"Status: {account.status}\n"
-        f"Cash: ${account.cash:.2f}\n"
-        f"Portfolio Value: ${account.portfolio_value:.2f}\n"
-        f"Buying Power: ${account.buying_power:.2f}\n"
-        f"Equity: ${account.equity:.2f}\n"
-        f"Daytrade Count: {account.daytrade_count}\n"
-        f"Pattern Day Trader: {account.pattern_day_trader}\n"
-    )
+    return f"""Account Summary:
+Status: {account.status}
+Cash: ${account.cash:.2f}
+Portfolio Value: ${account.portfolio_value:.2f}
+Buying Power: ${account.buying_power:.2f}
+Equity: ${account.equity:.2f}
+Daytrade Count: {account.daytrade_count}
+Pattern Day Trader: {account.pattern_day_trader}
+"""
 
 
 @mcp.resource("positions://all")
@@ -64,14 +62,14 @@ def get_all_positions() -> str:
     for pos in positions:
         pl_percent = pos.unrealized_plpc * 100
         pl_sign = "+" if pos.unrealized_pl >= 0 else ""
-        result += (
-            f"{pos.symbol} ({pos.side.upper()}):\n"
-            f"  Quantity: {pos.qty}\n"
-            f"  Avg Entry: ${pos.avg_entry_price:.2f}\n"
-            f"  Current Price: ${pos.current_price:.2f}\n"
-            f"  Market Value: ${pos.market_value:.2f}\n"
-            f"  Unrealized P/L: {pl_sign}${pos.unrealized_pl:.2f} ({pl_sign}{pl_percent:.2f}%)\n\n"
-        )
+        result += f"""
+{pos.symbol} ({pos.side.upper()}):\n
+Quantity: {pos.qty}\n
+Avg Entry: ${pos.avg_entry_price:.2f}\n
+Current Price: ${pos.current_price:.2f}\n
+Market Value: ${pos.market_value:.2f}\n
+Unrealized P/L: {pl_sign}${pos.unrealized_pl:.2f} ({pl_sign}{pl_percent:.2f}%)\n\n
+"""
 
     return result
 
@@ -561,7 +559,7 @@ def close_position(symbol: str) -> str:
         if not position:
             return f"No open position found for {symbol}."
 
-        # Close the position
+        # Close the positionEF SET
         trading_client.close_position(symbol)
         return f"Position for {symbol} has been successfully closed."
     except Exception as e:
@@ -752,7 +750,6 @@ def get_all_my_watchlists() -> str:
                     "Name": wl.name,
                     "ID": str(wl.id),  # Convert UUID to string for tabulate
                     "Symbols": symbols_str,
-                    "Created At": wl.created_at,  # Assuming created_at is already formatted or handles string
                 }
             )
         return f"All Your Watchlists:\n" + tabulate(

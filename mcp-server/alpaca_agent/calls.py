@@ -2,7 +2,12 @@ import logging
 from typing import List, Optional, Union
 from datetime import datetime, timedelta
 from alpaca.common import APIError
-from alpaca.trading import CreateWatchlistRequest, OrderStatus, UpdateWatchlistRequest
+from alpaca.trading import (
+    CreateWatchlistRequest,
+    OrderStatus,
+    UpdateWatchlistRequest,
+    Watchlist,
+)
 from alpaca.trading.requests import GetOptionContractsRequest
 
 from alpaca.trading.client import TradingClient
@@ -41,6 +46,7 @@ from models import (
     AlpacaBar,
     AlpacaOrderType,
     AlpacaWatchlist,
+    WatchlistAsset,
 )
 
 
@@ -458,11 +464,7 @@ def add_symbol_to_alpaca_watchlist(
 
 
 # --- READ Operations ---
-def get_all_alpaca_watchlists(
-    client: TradingClient,
-) -> Optional[
-    List[AlpacaWatchlist]
-]:  # This function's return type remains a list of objects or None, as per the user's implicit request of only changing error to string, not all of them.
+def get_all_alpaca_watchlists(client: TradingClient) -> Optional[List[AlpacaWatchlist]]:
     """
     Retrieves all watchlists for the authenticated Alpaca account.
 
@@ -471,13 +473,37 @@ def get_all_alpaca_watchlists(
     """
     try:
         watchlists = client.get_watchlists()
+
         if watchlists:
             logging.info("--- All Watchlists ---")
+            alpaca_watchlists_to_return = []
+
             for wl in watchlists:
+                assert isinstance(wl, Watchlist)
+                wld = client.get_watchlist_by_id(wl.id)
+                assert isinstance(wld, Watchlist)
+
+                # Manually build WatchlistAsset list
+                simplified_assets = [
+                    WatchlistAsset(
+                        id=asset.id,
+                        name=asset.name,
+                        symbol=asset.symbol,
+                        exchange=str(asset.exchange),
+                    )
+                    for asset in wld.assets or []
+                ]
+
+                watchlist_dict = wld.__dict__.copy()
+                watchlist_dict["assets"] = simplified_assets
+
                 logging.info(
-                    f"Name: {wl.name}, ID: {wl.id}, Symbols: {[s.symbol for s in wl.assets]}"
+                    f"Name: {wld.name}, ID: {wld.id}, Symbols: {[a.symbol for a in simplified_assets]}"
                 )
-            return [AlpacaWatchlist(**wl.__dict__) for wl in watchlists]
+
+                alpaca_watchlists_to_return.append(AlpacaWatchlist(**watchlist_dict))
+
+            return alpaca_watchlists_to_return
         else:
             logging.info("No watchlists found.")
             return []
