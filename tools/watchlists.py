@@ -2,7 +2,12 @@ import os
 import asyncio
 from typing import Optional, List, Dict, Any
 import asyncpg
-from asyncpg import Pool
+from asyncpg import (
+    ConnectionDoesNotExistError,
+    InterfaceError,
+    Pool,
+    PostgresConnectionError,
+)
 
 
 class WatchlistsManager:
@@ -148,7 +153,12 @@ class WatchlistsManager:
 
     async def _fetchval_with_retry(self, query: str, *params, retries: int = 3):
         """Execute a fetchval query with automatic retry on connection errors."""
-        last_exception = None
+        last_exception: (
+            ConnectionDoesNotExistError
+            | InterfaceError
+            | PostgresConnectionError
+            | None
+        ) = None
 
         for attempt in range(retries + 1):
             try:
@@ -172,7 +182,7 @@ class WatchlistsManager:
             except Exception as e:
                 print(f"Non-connection error: {e}")
                 raise
-
+        assert last_exception
         raise last_exception
 
     async def _fetch_with_retry(self, query: str, *params, retries: int = 3):
@@ -201,8 +211,7 @@ class WatchlistsManager:
             except Exception as e:
                 print(f"Non-connection error: {e}")
                 raise
-
-        raise last_exception
+            raise last_exception
         """
         Private method to ensure the watchlists table exists.
         Called automatically before any database operations.

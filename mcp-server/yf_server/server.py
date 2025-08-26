@@ -23,7 +23,7 @@ def fetch_ticker(symbol: str):
     return yf.Ticker(symbol.upper())
 
 
-def safe_get_price(ticker):
+def safe_get_price(ticker: yf.Ticker):
     """Attempt to retrieve the current price of a stock."""
     try:
         data = ticker.history(period="1d")
@@ -205,7 +205,7 @@ def get_moving_averages(
             "plots": chart_data_plots,
         }
 
-        result["chart"] = [chart_data]
+        # result["chart"] = [chart_data]
 
         return result
     except Exception as e:
@@ -300,7 +300,7 @@ def get_rsi(symbol: str, period: str = "6mo", interval: str = "1d", window: int 
             "dates": dates,
             "rsi": rsi_values,
             "close": close_prices,
-            "chart": [chart_data],
+            # "chart": [chart_data],
         }
     except Exception as e:
         return {"error": str(e)}
@@ -404,7 +404,7 @@ def get_macd(
             "signal": signal_values,
             "histogram": histogram_values,
             "close": close_prices,
-            "chart": [chart_data],
+            # "chart": [chart_data],
         }
     except Exception as e:
         return {"error": str(e)}
@@ -1076,8 +1076,6 @@ async def generate_chart(ticker, period="5mo", interval="1d"):
             },
         ]
     }
-
-
 
 
 # Run the server
