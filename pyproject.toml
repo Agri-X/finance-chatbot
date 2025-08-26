@@ -10,6 +10,7 @@ dependencies = [
     "bcrypt>=4.3.0",
     "boto3>=1.39.9",
     "chainlit>=2.6.2",
+    "google-cloud-storage>=3.3.0",
     "langchain-google-genai>=2.1.8",
     "langchain-mcp-adapters>=0.1.9",
     "langchain[google-genai]>=0.3.26",

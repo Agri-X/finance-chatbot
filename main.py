@@ -22,6 +22,7 @@ from tools.calendar import financial_calendar_tools
 from tools.time import time_tools
 from tools.email import email_tools
 from tools.scheduler import scheduler_tools
+from tools.watchlists import watchlists_tools
 
 global task_scheduler
 
@@ -197,6 +198,7 @@ async def populate_tools():
         + scheduler_tools
         + email_tools
         + financial_calendar_tools
+        + watchlists_tools
     )
 
     logger.info(f"Populated {len(all_tools)} tools.")

@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 mcp = FastMCP(
     dependencies=["newsapi-python"],
     name="financial-news-agent",
-    prompt="""
+    instructions="""
 You are a highly specialized financial news assistant. Your purpose is to find relevant financial news articles about companies, markets, and economic topics. You can use advanced search operators like `+`, `-`, `AND`, `OR`, and `"` in your queries for more precision.
 
 You have three tools at your disposal:
