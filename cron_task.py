@@ -16,8 +16,6 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
 from tools.calendar import financial_calendar_tools
-
-from tools.email import send_markdown_email
 from utils.prompt import system_template
 
 import asyncpg
@@ -40,7 +38,7 @@ async def query_watchlists():
     connection = None
     try:
         connection = await asyncpg.connect(os.environ.get("DATABASE_URL"))
-        print("Asynchronous database connection established successfully.")
+        logger.info("Asynchronous database connection established successfully.")
 
         sql_query = """
         SELECT
@@ -74,13 +72,13 @@ async def query_watchlists():
         return res
 
     except Exception as error:
-        print(f"Error while connecting to or querying PostgreSQL: {error}")
+        logger.info(f"Error while connecting to or querying PostgreSQL: {error}")
         raise error
 
     finally:
         if connection:
             await connection.close()
-            print("Asynchronous PostgreSQL connection is closed.")
+            logger.info("Asynchronous PostgreSQL connection is closed.")
 
 
 async def load_system_prompt():
@@ -227,11 +225,11 @@ async def send_markdown_email(
             server.login(mail_username, mail_password)
             server.sendmail(mail_username, mail_to, msg.as_string())
 
-        print(f"Email sent successfully to {recipient_email}")
+        logger.info(f"Email sent successfully to {recipient_email}")
         return True
 
     except Exception as e:
-        print(f"Failed to send email: {e}")
+        logger.info(f"Failed to send email: {e}")
         return False
 
 
@@ -283,7 +281,7 @@ Here is my current portfolio:\n"""
             subject="Daily report",
         )
 
-    print("All emails sent successfully.")
+    logger.info("All emails sent successfully.")
 
 
 if __name__ == "__main__":
