@@ -243,7 +243,7 @@ async def main():
 
         prompt_template = """Act like a professional technical analyst specializing in stock price charting and trading strategies. 
 
-Objective: I want a detailed technical analysis of two specific stocks I currently hold, including support and resistance levels, trading signals, and exit strategy advice.
+Objective: I want a detailed technical analysis of all these stocks I currently hold, including support and resistance levels, trading signals, and exit strategy advice.
 
 Here is my current portfolio:\n"""
 
