@@ -95,8 +95,13 @@ async def load_system_prompt():
             date=datetime.now().strftime("%Y-%m-%d")
         )
 
-        param = prompt_template.steps[1].bound._get_ls_params()
-        model_name = prompt_template.steps[1].bound.model.split("/")[-1]
+        x = prompt_template.steps[1].bound
+
+        param = x._get_ls_params()
+        try:
+            model_name = x.model.split("/")[-1]
+        except Exception:
+            model_name = x.model_name.split("/")[-1]
 
         model_provider = param["ls_provider"]
 
@@ -156,6 +161,7 @@ async def on_message(msgs: List[str]):
 
     final_answer = await main_model.abatch(
         inputs=[{"messages": [HumanMessage(content=msg)]} for msg in msgs],
+        config={"recursion_limit": 120},
     )
 
     return final_answer
@@ -242,10 +248,9 @@ async def main():
         watchlists = json.loads(user["stocks_json"])
 
         prompt_template = """Act like a professional technical analyst specializing in stock price charting and trading strategies. 
-
 Objective: I want a detailed technical analysis of all these stocks I currently hold, including support and resistance levels, trading signals, and exit strategy advice.
-
-Here is my current portfolio:\n"""
+Here is my current portfolio:
+"""
 
         for stock in watchlists:
             prompt_template += f"- {stock['stock_symbol']}"
