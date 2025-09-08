@@ -94,10 +94,13 @@ async def load_system_prompt():
         prompt_str = prompt_template.steps[0].format(
             date=datetime.now().strftime("%Y-%m-%d")
         )
-
-        x = prompt_template.steps[1].bound
+        try:
+            x = prompt_template.steps[1].bound
+        except:
+            x = prompt_template.steps[1]
 
         param = x._get_ls_params()
+
         try:
             model_name = x.model.split("/")[-1]
         except Exception:
