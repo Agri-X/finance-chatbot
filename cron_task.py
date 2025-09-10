@@ -50,16 +50,13 @@ if not llm:
 
 runnable = prompt | llm.with_structured_output(TechnicalAnalysisReport)
 
-
 result = runnable.batch(queries)
 
-reports = [r["structured_response"] for r in result]
-
-reports.sort(key=attrgetter("email"))
+result.sort(key=attrgetter("email"))
 
 grouped_by_email = {}
 
-for email, group in groupby(reports, key=attrgetter("email")):
+for email, group in groupby(result, key=attrgetter("email")):
     grouped_by_email[email] = list(group)
 
 for email in grouped_by_email.keys():
